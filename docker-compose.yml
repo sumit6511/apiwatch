@@ -1,0 +1,31 @@
+# MongoDB is NOT a service here on purpose -- APIWatch uses MongoDB Atlas
+# (see README "MongoDB Atlas Setup"). Point backend/.env at your Atlas
+# cluster before running `docker compose up --build`.
+#
+# IMPORTANT: `backend` embeds an APScheduler instance in-process (see
+# README "Scheduler Architecture"). Do not scale it beyond one replica --
+# multiple instances would run every monitor's checks multiple times over.
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked in at build time (Vite env vars aren't readable at container
+        # runtime). This must be a URL the *browser* can reach, so it's the
+        # published host port below, not the internal `backend` service name.
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        VITE_MONITOR_REFRESH_SECONDS: ${MONITOR_REFRESH_SECONDS:-30}
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
