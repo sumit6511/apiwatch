@@ -7,6 +7,7 @@ import "./styles/theme.css";
 
 import { AppRouter } from "./app/router";
 import { ToastProvider } from "./components/common/Toast";
+import { AccessGate } from "./components/common/AccessGate";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,7 +27,9 @@ createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <AppRouter />
+        <AccessGate>
+          <AppRouter />
+        </AccessGate>
       </ToastProvider>
     </QueryClientProvider>
   </StrictMode>,

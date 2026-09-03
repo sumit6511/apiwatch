@@ -1,12 +1,13 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import checks, health, incidents, monitors, notifications
+from app.auth import require_access_key
 from app.config import get_settings
 from app.db.client import close_mongo_connection, connect_to_mongo, get_database
 from app.db.indexes import ensure_indexes
@@ -123,9 +124,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
+# /api/health is intentionally unauthenticated -- Render/uptime pingers hit
+# it without an Authorization header, and it doesn't expose sensitive data.
+# Everything else requires the shared access key when API_ACCESS_KEY is set.
+_protected = [Depends(require_access_key)]
 app.include_router(health.router)
-app.include_router(monitors.router)
-app.include_router(checks.router)
-app.include_router(checks.dashboard_router)
-app.include_router(incidents.router)
-app.include_router(notifications.router)
+app.include_router(monitors.router, dependencies=_protected)
+app.include_router(checks.router, dependencies=_protected)
+app.include_router(checks.dashboard_router, dependencies=_protected)
+app.include_router(incidents.router, dependencies=_protected)
+app.include_router(notifications.router, dependencies=_protected)

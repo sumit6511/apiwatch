@@ -50,6 +50,7 @@ You give APIWatch a URL, an HTTP method, an interval, and what a "healthy" respo
 - SSRF-hardened URL validation on every request path (create, update, manual check, scheduled check, redirects)
 - Responsive UI: sidebar on desktop, drawer on mobile
 - Configurable data retention for check history (incidents are kept)
+- Optional shared-secret access key protecting the whole API/UI on public deployments, with zero setup for local dev
 
 ## Architecture
 
@@ -154,6 +155,15 @@ Other hardening:
 - Manual health checks are throttled per-monitor (`MANUAL_CHECK_THROTTLE_SECONDS`, default 5s) — `429 Too Many Requests` beyond that.
 - CORS is an explicit allow-list (`CORS_ORIGINS`), not a wildcard.
 - Errors returned to clients never include stack traces, MongoDB URIs, webhook URLs, or filesystem paths — see `app/errors.py`.
+
+### Access control
+
+Spec-scoped v1 deliberately has no user accounts (see `app/auth.py` for the reasoning). But a monitoring dashboard sitting fully open on the public internet lets anyone create/pause/delete monitors, read incident history, and — the sharper edge — use your server to send outbound requests at any public URL of their choosing. `API_ACCESS_KEY` closes that with the least amount of machinery that actually works: a single shared secret, checked on every route except `/api/health` (so platform health checks keep working unauthenticated).
+
+- **Unset** (the default): no auth at all. Fine for local dev.
+- **Set**: every request needs `Authorization: Bearer <key>`, checked with a constant-time comparison. The frontend's `AccessGate` auto-detects which mode the backend is in with a single probe request — nothing to configure on the frontend side, and no rebuild needed to rotate the key (it's entered at runtime, stored in the browser's `localStorage`, not baked into the build).
+
+Set `API_ACCESS_KEY` on any deployment reachable from the public internet.
 
 ## Tech Stack
 
@@ -268,6 +278,7 @@ See [`.env.example`](.env.example) for the full annotated list. The important on
 | `MAX_REQUEST_BODY_SIZE_KB` | Cap on a monitor's configured request body |
 | `FOLLOW_REDIRECTS` | Whether to follow (SSRF-revalidated) redirects during checks |
 | `ENCRYPTION_KEY` | Fernet key used to encrypt Discord webhook URLs at rest |
+| `API_ACCESS_KEY` | Shared secret protecting the API — empty disables auth (local dev); **set this on any public deployment** |
 | `CORS_ORIGINS` | Comma-separated allow-list for the frontend origin(s) |
 | `ENABLE_SCHEDULER` | Keep `true` on exactly one backend instance — see below |
 | `VITE_API_URL` (frontend) | Backend URL the browser talks to |
@@ -290,9 +301,10 @@ Alerts    → Discord
 ```
 
 - Set `VITE_API_URL` on the frontend host to your deployed backend URL.
-- Set `CORS_ORIGINS` on the backend to your deployed frontend URL.
+- Set `CORS_ORIGINS` on the backend to your deployed frontend URL — no trailing slash, it must match the browser's `Origin` header exactly.
+- Set `API_ACCESS_KEY` on the backend (see [Access control](#access-control)) — without it, the deployed instance is fully open to anyone with the URL.
 - Open MongoDB Atlas network access to your backend host's egress IP(s) (or `0.0.0.0/0` if your host uses dynamic IPs — tighten this if your provider supports static egress).
-- **Run exactly one backend instance.** See [Scheduler Architecture](#scheduler-architecture) — this is the one hard constraint on how this deploys today.
+- **Run exactly one backend instance.** See [Scheduler Architecture](#scheduler-architecture) — this is the one hard constraint on how this deploys today. This also means: don't leave a local `uvicorn` pointed at the same production `MONGODB_URI` running while your deployed instance is also up — both would register scheduler jobs for the same monitors, doubling check frequency and notifications.
 
 ## Scheduler Architecture
 
@@ -320,7 +332,7 @@ APScheduler runs **inside the FastAPI process**, with an in-memory job store, on
                     │ MongoDB Atlas│
                     └──────▲───────┘
                            │
-                    ┌──────┴───────┐
+                    ┌──────┴────────┐
                     │ Monitor Worker│  (single dedicated scheduler process)
                     │ Scheduler     │
                     └───────────────┘

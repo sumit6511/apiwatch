@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     max_request_body_size_kb: int = 64
     follow_redirects: bool = True
     encryption_key: str
+    # Shared-secret API access key. Empty (the default) disables auth entirely
+    # -- fine for local dev, not fine for a public deployment. Set this in
+    # production and the frontend's AccessGate will prompt for it.
+    api_access_key: str = ""
 
     # Frontend / CORS
     frontend_url: str = "http://localhost:5173"
