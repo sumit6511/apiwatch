@@ -41,7 +41,7 @@ class SchedulerManager:
         logger.info("scheduler_stopped")
 
     async def _run_scheduled_check(self, monitor_id: str) -> None:
-        monitor = await self._monitor_repo.get(monitor_id)
+        monitor = await self._monitor_repo.get_by_id(monitor_id)
         if monitor is None or not monitor.get("is_active"):
             # Monitor was deleted or paused between job registration and firing.
             return
@@ -81,7 +81,7 @@ class SchedulerManager:
         )
 
     async def register_active_monitors(self) -> None:
-        monitors = await self._monitor_repo.list_all(active_only=True)
+        monitors = await self._monitor_repo.list_active_for_scheduler()
         for monitor in monitors:
             self.add_or_update_job(str(monitor["_id"]), monitor["interval_seconds"])
         logger.info("scheduler_startup_registered count=%s", len(monitors))

@@ -51,6 +51,7 @@ You give APIWatch a URL, an HTTP method, an interval, and what a "healthy" respo
 - Responsive UI: sidebar on desktop, drawer on mobile
 - Configurable data retention for check history (incidents are kept)
 - Optional shared-secret access key protecting the whole API/UI on public deployments, with zero setup for local dev
+- Multi-user accounts (email/password) — every account's monitors, checks, incidents, and notification channels are private to it
 
 ## Architecture
 
@@ -158,18 +159,28 @@ Other hardening:
 
 ### Access control
 
-Spec-scoped v1 deliberately has no user accounts (see `app/auth.py` for the reasoning). But a monitoring dashboard sitting fully open on the public internet lets anyone create/pause/delete monitors, read incident history, and — the sharper edge — use your server to send outbound requests at any public URL of their choosing. `API_ACCESS_KEY` closes that with the least amount of machinery that actually works: a single shared secret, checked on every route except `/api/health` (so platform health checks keep working unauthenticated).
+Two independent layers, checked separately on every request (see `app/main.py`'s router wiring):
 
-- **Unset** (the default): no auth at all. Fine for local dev.
-- **Set**: every request needs `Authorization: Bearer <key>`, checked with a constant-time comparison. The frontend's `AccessGate` auto-detects which mode the backend is in with a single probe request — nothing to configure on the frontend side, and no rebuild needed to rotate the key (it's entered at runtime, stored in the browser's `localStorage`, not baked into the build).
+**1. Deployment gate (`API_ACCESS_KEY`, `app/auth.py`).** A monitoring dashboard sitting fully open on the public internet lets anyone create/pause/delete monitors, read incident history, and — the sharper edge — use your server to send outbound requests at any public URL of their choosing. A single shared secret, checked on every route except `/api/health` (so platform health checks keep working unauthenticated), closes that with the least machinery that actually works.
 
-Set `API_ACCESS_KEY` on any deployment reachable from the public internet.
+- **Unset** (the default): no gate at all. Fine for local dev.
+- **Set**: every request needs `Authorization: Bearer <key>`, checked with a constant-time comparison.
+
+**2. Per-account login (email/password, `app/services/auth_service.py`).** On top of the deployment gate, every monitor/check/incident/notification-channel document has an `owner_id`, and every repository query is scoped to it — one account's data is invisible to another's, not just hidden in the UI. Passwords are hashed with `bcrypt`; sessions are JWTs (`JWT_SECRET_KEY`, `JWT_EXPIRE_DAYS`, default 30 days) sent as `X-User-Token` — a header distinct from the access key's `Authorization`, so the two checks never interfere with each other, including which one clears which stored value on a 401 (see the `UNAUTHORIZED` vs `INVALID_SESSION` error codes). Signup is open to anyone who already has the deployment access key — effectively invite-only, no email verification, no password reset (noted under Future Improvements).
+
+Both gates auto-detect on the frontend with a single probe request each (`AccessGate`, then nested `AuthGate`) — nothing to configure client-side, and rotating either secret doesn't require a rebuild since both tokens are entered at runtime and kept in `localStorage`, not baked into the build.
+
+**Trade-off, stated plainly:** a JWT in `localStorage` is vulnerable to theft via XSS in a way an httpOnly cookie isn't. Accepted here — this app runs no third-party scripts — and avoids the real complexity of cross-site cookies between two different origins (Vercel frontend, Render backend), which is what `SameSite=None; Secure` cookies would require.
+
+Set both `API_ACCESS_KEY` and `JWT_SECRET_KEY` on any deployment reachable from the public internet.
+
+**Existing data migration:** monitors created before this feature shipped have no `owner_id` and become invisible to every account once ownership filtering is live (not deleted — just unmatched by any `{owner_id: ...}` query). `backend/scripts/assign_orphaned_monitors.py` is a one-off, not-part-of-the-app script to assign them to a specific account after you've signed up: `python scripts/assign_orphaned_monitors.py you@example.com --apply` (dry-run without `--apply`).
 
 ## Tech Stack
 
 **Frontend:** React 19, TypeScript (strict), Vite, UnoCSS (no Tailwind, no shadcn/ui — a small custom component system built directly on UnoCSS utilities/shortcuts), TanStack Query, React Router, Recharts, Lucide icons.
 
-**Backend:** Python 3.12, FastAPI, Pydantic v2, PyMongo's native async API (`pymongo.AsyncMongoClient` — not Motor), httpx, APScheduler, `cryptography` (Fernet) for webhook encryption.
+**Backend:** Python 3.12, FastAPI, Pydantic v2, PyMongo's native async API (`pymongo.AsyncMongoClient` — not Motor), httpx, APScheduler, `cryptography` (Fernet) for webhook encryption, `bcrypt` + `PyJWT` for user auth.
 
 **Database:** MongoDB Atlas.
 
@@ -181,14 +192,15 @@ Set `API_ACCESS_KEY` on any deployment reachable from the public internet.
 apiwatch/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py, config.py, errors.py, security.py, constants.py, dependencies.py
-│   │   ├── api/            # health, monitors, checks, incidents, notifications routers
-│   │   ├── db/              # client, indexes, repositories/
+│   │   ├── main.py, config.py, errors.py, security.py, constants.py, dependencies.py, auth.py
+│   │   ├── api/            # health, auth, monitors, checks, incidents, notifications routers
+│   │   ├── db/              # client, indexes, repositories/ (incl. users)
 │   │   ├── models/          # Mongo-shaped documents
 │   │   ├── schemas/         # request/response Pydantic schemas
-│   │   ├── services/        # business logic
+│   │   ├── services/        # business logic (incl. auth_service)
 │   │   ├── monitoring/      # checker, scheduler, state machine, URL validator
 │   │   └── notifications/   # provider interface + Discord
+│   ├── scripts/             # one-off maintenance scripts, not part of the app
 │   ├── tests/
 │   ├── requirements.txt
 │   └── Dockerfile
@@ -279,6 +291,7 @@ See [`.env.example`](.env.example) for the full annotated list. The important on
 | `FOLLOW_REDIRECTS` | Whether to follow (SSRF-revalidated) redirects during checks |
 | `ENCRYPTION_KEY` | Fernet key used to encrypt Discord webhook URLs at rest |
 | `API_ACCESS_KEY` | Shared secret protecting the API — empty disables auth (local dev); **set this on any public deployment** |
+| `JWT_SECRET_KEY` / `JWT_EXPIRE_DAYS` | Signs per-account login sessions — required, no default; rotating it logs everyone out |
 | `CORS_ORIGINS` | Comma-separated allow-list for the frontend origin(s) |
 | `ENABLE_SCHEDULER` | Keep `true` on exactly one backend instance — see below |
 | `VITE_API_URL` (frontend) | Backend URL the browser talks to |
@@ -302,7 +315,7 @@ Alerts    → Discord
 
 - Set `VITE_API_URL` on the frontend host to your deployed backend URL.
 - Set `CORS_ORIGINS` on the backend to your deployed frontend URL — no trailing slash, it must match the browser's `Origin` header exactly.
-- Set `API_ACCESS_KEY` on the backend (see [Access control](#access-control)) — without it, the deployed instance is fully open to anyone with the URL.
+- Set `API_ACCESS_KEY` and `JWT_SECRET_KEY` on the backend (see [Access control](#access-control)) — without them, the deployed instance is fully open to anyone with the URL.
 - Open MongoDB Atlas network access to your backend host's egress IP(s) (or `0.0.0.0/0` if your host uses dynamic IPs — tighten this if your provider supports static egress).
 - **Run exactly one backend instance.** See [Scheduler Architecture](#scheduler-architecture) — this is the one hard constraint on how this deploys today. This also means: don't leave a local `uvicorn` pointed at the same production `MONGODB_URI` running while your deployed instance is also up — both would register scheduler jobs for the same monitors, doubling check frequency and notifications.
 
@@ -342,7 +355,7 @@ Pulling the scheduler out into its own worker process (talking to the same Mongo
 
 ## Testing
 
-**Backend** (`cd backend && pytest`) — 62 tests against a real MongoDB Atlas database (`apiwatch_test`, separate from the dev database, wiped between tests), with outbound HTTP mocked via `respx`:
+**Backend** (`cd backend && pytest`) — 88 tests against a real MongoDB Atlas database (`apiwatch_test`, separate from the dev database, wiped between tests), with outbound HTTP mocked via `respx`:
 
 - URL validator: valid/invalid schemes, localhost, loopback, private ranges (v4 + v6), the cloud metadata address, IPv4-mapped IPv6
 - Monitor CRUD, pause/resume, and scheduler job lifecycle (including the pause/resume-while-down regression test)
@@ -351,10 +364,12 @@ Pulling the scheduler out into its own worker process (talking to the same Mongo
 - Incident lifecycle: single incident per outage, single notification per transition, resolution + duration
 - Notifications: Discord payload shape, failure handling, webhook masking/encryption round-trip, disabled channels excluded
 - Uptime: 100%/50%/0%, empty-data returns `null` (never a fabricated 100%), period windowing
+- Auth: signup hashes the password (never stores plaintext), duplicate email rejected, wrong-password and unknown-email login both rejected identically, JWT round-trip, expired/malformed/mis-signed tokens rejected
+- Ownership isolation: a monitor/notification channel created by one account is a 404 (not a 403 that would leak existence) to another account on every read/write path, `list_all`/dashboard-summary/all-incidents scoped per caller, and a monitor can't reference another account's notification channel
 
-**Frontend** (`cd frontend && npm run test`) — Vitest + React Testing Library, focused on behavior: status badges always render text (not color alone), form validation (including a real bug this caught — `Number("")` evaluating to `0` in JS, which silently turned a cleared "expected status codes" field into `[0]` instead of `[]`), monitor card actions, incident card states, check history rendering.
+**Frontend** (`cd frontend && npm run test`) — Vitest + React Testing Library, focused on behavior: status badges always render text (not color alone), form validation (including a real bug this caught — `Number("")` evaluating to `0` in JS, which silently turned a cleared "expected status codes" field into `[0]` instead of `[]`), monitor card actions, incident card states, check history rendering, the access-key and login gates (including that a locked-out account sees the right lock screen when the *other* gate is what actually failed).
 
-Both suites, `npm run build` (strict TypeScript), and `docker compose up --build` were run as part of building this project, and the full app was driven end-to-end in a real headless browser: creating monitors against live public endpoints, verifying UP/DOWN classification and response times, incident open/resolve, SSRF rejection surfaced in the UI, pause/resume, manual-check throttling, and the mobile drawer/responsive layout.
+Both suites, `npm run build` (strict TypeScript), and `docker compose up --build` were run as part of building this project, and the full app was driven end-to-end in a real headless browser: creating monitors against live public endpoints, verifying UP/DOWN classification and response times, incident open/resolve, SSRF rejection surfaced in the UI, pause/resume, manual-check throttling, the mobile drawer/responsive layout, and — for the multi-user feature specifically — two separate accounts in two isolated browser contexts, confirming account B's dashboard never shows account A's monitor and that navigating directly to account A's monitor URL as account B renders the same "not found" state as a genuinely deleted monitor.
 
 ## Future Improvements
 
@@ -362,7 +377,8 @@ Both suites, `npm run build` (strict TypeScript), and `docker compose up --build
 - Additional notification providers (Email, Slack, Telegram, Microsoft Teams, generic webhook) behind the existing `NotificationProvider` interface
 - Public status pages per monitor or monitor group
 - Multi-region checks
-- Auth/multi-tenancy (deliberately out of scope for v1 — see spec)
+- Password reset and email verification (signup is currently invite-only via the deployment access key, with no email-ownership check)
+- OAuth (GitHub/Google) as an alternative to email/password
 
 ## License
 

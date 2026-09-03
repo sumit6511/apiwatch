@@ -1,5 +1,6 @@
 import type { ApiErrorBody } from "../types";
 import { clearStoredAccessKey, getStoredAccessKey, UNAUTHORIZED_EVENT } from "../lib/accessKey";
+import { clearStoredUserToken, getStoredUserToken, USER_UNAUTHORIZED_EVENT } from "../lib/authToken";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -17,6 +18,7 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const accessKey = getStoredAccessKey();
+  const userToken = getStoredUserToken();
 
   let response: Response;
   try {
@@ -24,19 +26,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       headers: {
         "Content-Type": "application/json",
+        // Two independent gates, two independent headers (see backend
+        // app/main.py): the shared deployment access key on Authorization,
+        // this account's login session on X-User-Token.
         ...(accessKey ? { Authorization: `Bearer ${accessKey}` } : {}),
+        ...(userToken ? { "X-User-Token": userToken } : {}),
         ...init?.headers,
       },
     });
   } catch {
     throw new ApiError(0, "NETWORK_ERROR", "Unable to reach the server. Please check your connection.");
-  }
-
-  if (response.status === 401) {
-    // Stored key is missing/wrong/revoked -- drop it and let any mounted
-    // AccessGate fall back to the lock screen.
-    clearStoredAccessKey();
-    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
   }
 
   if (response.status === 204) {
@@ -48,11 +47,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const body = data as ApiErrorBody | undefined;
-    throw new ApiError(
-      response.status,
-      body?.error?.code ?? "UNKNOWN_ERROR",
-      body?.error?.message ?? "Something went wrong.",
-    );
+    const code = body?.error?.code ?? "UNKNOWN_ERROR";
+
+    // Which of the two gates actually rejected this request -- inspect the
+    // error *code*, not just the 401 status, since both failure modes are
+    // 401s but need different UI (and must not clear each other's token).
+    if (code === "UNAUTHORIZED") {
+      clearStoredAccessKey();
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    } else if (code === "INVALID_SESSION") {
+      clearStoredUserToken();
+      window.dispatchEvent(new Event(USER_UNAUTHORIZED_EVENT));
+    }
+
+    throw new ApiError(response.status, code, body?.error?.message ?? "Something went wrong.");
   }
 
   return data as T;

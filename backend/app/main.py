@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api import auth as auth_api
 from app.api import checks, health, incidents, monitors, notifications
 from app.auth import require_access_key
 from app.config import get_settings
@@ -15,9 +16,12 @@ from app.db.repositories.checks import CheckRepository
 from app.db.repositories.incidents import IncidentRepository
 from app.db.repositories.monitors import MonitorRepository
 from app.db.repositories.notifications import NotificationRepository
+from app.db.repositories.users import UserRepository
+from app.dependencies import get_current_user_id
 from app.errors import AppError, app_error_handler
 from app.monitoring.checker import MonitorChecker
 from app.monitoring.scheduler import SchedulerManager
+from app.services.auth_service import AuthService
 from app.services.check_service import CheckService
 from app.services.incident_service import IncidentService
 from app.services.metrics_service import MetricsService
@@ -41,6 +45,7 @@ async def lifespan(app: FastAPI):
     check_repo = CheckRepository(db)
     incident_repo = IncidentRepository(db)
     notification_repo = NotificationRepository(db)
+    user_repo = UserRepository(db)
 
     incident_service = IncidentService(incident_repo)
     notification_service = NotificationService(notification_repo)
@@ -51,13 +56,17 @@ async def lifespan(app: FastAPI):
         check_repo, monitor_repo, checker, settings.manual_check_throttle_seconds
     )
     metrics_service = MetricsService(check_repo, monitor_repo)
-    monitor_service = MonitorService(monitor_repo, check_repo, incident_repo, scheduler, checker)
+    monitor_service = MonitorService(
+        monitor_repo, check_repo, incident_repo, notification_repo, scheduler, checker
+    )
+    auth_service = AuthService(user_repo)
 
     app.state.monitor_service = monitor_service
     app.state.check_service = check_service
     app.state.incident_service = incident_service
     app.state.metrics_service = metrics_service
     app.state.notification_service = notification_service
+    app.state.auth_service = auth_service
     app.state.scheduler = scheduler if settings.enable_scheduler else None
 
     # 3-5. Load active monitors, register their jobs, start the scheduler.
@@ -126,9 +135,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 # /api/health is intentionally unauthenticated -- Render/uptime pingers hit
 # it without an Authorization header, and it doesn't expose sensitive data.
-# Everything else requires the shared access key when API_ACCESS_KEY is set.
-_protected = [Depends(require_access_key)]
+#
+# Everything else sits behind the shared access key (require_access_key, a
+# deployment-wide gate -- who's even allowed to talk to this API at all,
+# when API_ACCESS_KEY is set). /api/auth/* stops there: you can't require a
+# login to reach the login endpoint. Every other router additionally
+# requires get_current_user_id -- which *account* is making the request,
+# used to scope monitors/checks/incidents/notifications to their owner.
+_access_key_only = [Depends(require_access_key)]
+_protected = [Depends(require_access_key), Depends(get_current_user_id)]
 app.include_router(health.router)
+app.include_router(auth_api.router, dependencies=_access_key_only)
 app.include_router(monitors.router, dependencies=_protected)
 app.include_router(checks.router, dependencies=_protected)
 app.include_router(checks.dashboard_router, dependencies=_protected)

@@ -3,12 +3,14 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 import respx
+from bson import ObjectId
 
 from app.models.enums import MonitorStatus
 from app.monitoring.checker import MonitorChecker
 from app.services.incident_service import IncidentService
 
 TEST_URL = "https://example.com/incident-probe"
+OWNER_ID = str(ObjectId())
 
 
 class FakeNotificationService:
@@ -29,6 +31,7 @@ def notifications():
 async def _make_monitor(monitor_repo, **overrides):
     now = datetime.now(UTC)
     doc = {
+        "owner_id": ObjectId(OWNER_ID),
         "name": "test monitor",
         "url": TEST_URL,
         "method": "GET",
@@ -68,8 +71,9 @@ async def test_first_failure_opens_exactly_one_incident(monitor_repo, check_repo
     incidents = await incident_service.list_for_monitor(monitor_id)
     assert len(incidents) == 1
     assert incidents[0]["status"] == "OPEN"
+    assert incidents[0]["owner_id"] == ObjectId(OWNER_ID)
 
-    updated_monitor = await monitor_repo.get(monitor_id)
+    updated_monitor = await monitor_repo.get(monitor_id, OWNER_ID)
     assert updated_monitor["current_status"] == MonitorStatus.DOWN
     assert len(notifications.sent) == 1
     assert notifications.sent[0].event_type == "outage"
@@ -87,7 +91,7 @@ async def test_repeated_failures_do_not_duplicate_incident_or_notify_again(
     monitor_id = str(monitor["_id"])
 
     for _ in range(3):
-        monitor = await monitor_repo.get(monitor_id)
+        monitor = await monitor_repo.get(monitor_id, OWNER_ID)
         await checker.run_check(monitor)
 
     incidents = await incident_service.list_for_monitor(monitor_id)
@@ -110,10 +114,10 @@ async def test_recovery_resolves_incident_and_sends_one_recovery_notification(
     await checker.run_check(monitor)
 
     respx.get(TEST_URL).mock(return_value=httpx.Response(200))
-    monitor = await monitor_repo.get(monitor_id)
+    monitor = await monitor_repo.get(monitor_id, OWNER_ID)
     await checker.run_check(monitor)
 
-    monitor = await monitor_repo.get(monitor_id)
+    monitor = await monitor_repo.get(monitor_id, OWNER_ID)
     assert monitor["current_status"] == MonitorStatus.UP
     assert monitor["open_incident_id"] is None
 

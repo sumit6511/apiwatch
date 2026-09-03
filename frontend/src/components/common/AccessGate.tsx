@@ -23,11 +23,15 @@ export function AccessGate({ children }: { children: ReactNode }) {
       await apiClient.get("/api/monitors");
       setStatus("unlocked");
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
+      // Check the error *code*, not just a 401 status -- this same probe
+      // request also exercises the nested per-user login check (AuthGate),
+      // which is a 401 with a different code (INVALID_SESSION). Only
+      // "UNAUTHORIZED" means the access key itself is the problem; anything
+      // else (including "not logged in yet") should pass through to
+      // children and let AuthGate or the app's own error states handle it.
+      if (err instanceof ApiError && err.code === "UNAUTHORIZED") {
         setStatus("locked");
       } else {
-        // A network hiccup shouldn't lock the user out -- let the app's own
-        // per-page error states handle a genuinely unreachable backend.
         setStatus("unlocked");
       }
     }
@@ -52,7 +56,15 @@ export function AccessGate({ children }: { children: ReactNode }) {
       await apiClient.get("/api/monitors");
       setStatus("unlocked");
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? "Incorrect access key." : "Unable to reach the server.");
+      if (err instanceof ApiError && err.code === "UNAUTHORIZED") {
+        setError("Incorrect access key.");
+      } else if (err instanceof ApiError && err.code === "INVALID_SESSION") {
+        // Access key was accepted; the 401 came from the (unrelated) user
+        // login check further down the chain -- so the key itself is fine.
+        setStatus("unlocked");
+      } else {
+        setError("Unable to reach the server.");
+      }
     } finally {
       setSubmitting(false);
     }

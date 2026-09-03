@@ -141,10 +141,12 @@ class MonitorChecker:
 
         now = datetime.now(UTC)
         monitor_id = str(monitor["_id"])
+        owner_id = str(monitor["owner_id"])
 
         saved_check = await self._check_repo.insert(
             {
                 "monitor_id": ObjectId(monitor_id),
+                "owner_id": monitor["owner_id"],
                 "status": result.status,
                 "http_status": result.http_status,
                 "response_time_ms": result.response_time_ms,
@@ -192,7 +194,7 @@ class MonitorChecker:
         elif transition.should_open_incident:
             reason = result.error or f"HTTP {result.http_status}"
             incident = await self._incident_service.open_incident(
-                monitor_id=monitor_id, reason=reason, started_at=now
+                monitor_id=monitor_id, owner_id=owner_id, reason=reason, started_at=now
             )
             monitor_updates["open_incident_id"] = str(incident["_id"])
             logger.info("monitor_state_changed monitor_id=%s status=DOWN reason=%s", monitor_id, reason)
@@ -227,7 +229,7 @@ class MonitorChecker:
                 ),
             )
 
-        await self._monitor_repo.update(monitor_id, monitor_updates)
+        await self._monitor_repo.update(monitor_id, owner_id, monitor_updates)
         logger.info(
             "check_completed monitor_id=%s status=%s http_status=%s response_time_ms=%s",
             monitor_id,

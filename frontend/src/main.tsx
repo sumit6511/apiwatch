@@ -8,6 +8,7 @@ import "./styles/theme.css";
 import { AppRouter } from "./app/router";
 import { ToastProvider } from "./components/common/Toast";
 import { AccessGate } from "./components/common/AccessGate";
+import { AuthGate } from "./components/common/AuthGate";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,7 +29,9 @@ createRoot(rootElement).render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <AccessGate>
-          <AppRouter />
+          <AuthGate>
+            <AppRouter />
+          </AuthGate>
         </AccessGate>
       </ToastProvider>
     </QueryClientProvider>

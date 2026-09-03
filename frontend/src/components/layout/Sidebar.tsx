@@ -1,8 +1,9 @@
 import { NavLink } from "react-router-dom";
-import { Activity, AlertCircle, LayoutGrid, Settings as SettingsIcon } from "lucide-react";
+import { Activity, AlertCircle, LayoutGrid, LogOut, Settings as SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { useDashboardSummary } from "../../hooks/useDashboardSummary";
+import { useAuth } from "../common/AuthGate";
 
 const NAV_ITEMS: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
   { to: "/", label: "Overview", icon: <LayoutGrid size={18} />, end: true },
@@ -12,6 +13,7 @@ const NAV_ITEMS: { to: string; label: string; icon: ReactNode; end?: boolean }[]
 
 export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { data: summary } = useDashboardSummary();
+  const { user, logout } = useAuth();
 
   return (
     <div className="flex h-full flex-col">
@@ -61,6 +63,21 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <SettingsIcon size={18} />
           Settings
         </NavLink>
+
+        <div className="mt-2 flex items-center justify-between gap-2 px-3 py-1.5">
+          <span className="truncate text-xs text-muted" title={user.email}>
+            {user.email}
+          </span>
+          <button
+            type="button"
+            onClick={logout}
+            className="icon-btn h-7 w-7 shrink-0"
+            aria-label="Log out"
+            title="Log out"
+          >
+            <LogOut size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );

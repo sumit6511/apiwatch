@@ -13,6 +13,7 @@ class NotificationChannelDocument(BaseModel):
     """
 
     id: PyObjectId = Field(alias="_id")
+    owner_id: PyObjectId
     type: NotificationType = NotificationType.DISCORD
     name: str
     webhook_url_encrypted: str

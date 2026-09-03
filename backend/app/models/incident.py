@@ -11,6 +11,7 @@ class IncidentDocument(BaseModel):
 
     id: PyObjectId = Field(alias="_id")
     monitor_id: PyObjectId
+    owner_id: PyObjectId
     status: IncidentStatus
     reason: str
     started_at: datetime

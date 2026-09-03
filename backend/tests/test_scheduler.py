@@ -7,10 +7,10 @@ class FakeMonitorRepo:
     def __init__(self, monitors: dict | None = None):
         self._monitors = monitors or {}
 
-    async def get(self, monitor_id: str):
+    async def get_by_id(self, monitor_id: str):
         return self._monitors.get(monitor_id)
 
-    async def list_all(self, active_only: bool = False):
+    async def list_active_for_scheduler(self):
         return list(self._monitors.values())
 
 

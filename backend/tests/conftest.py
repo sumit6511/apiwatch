@@ -17,8 +17,9 @@ from app.db.repositories.checks import CheckRepository
 from app.db.repositories.incidents import IncidentRepository
 from app.db.repositories.monitors import MonitorRepository
 from app.db.repositories.notifications import NotificationRepository
+from app.db.repositories.users import UserRepository
 
-COLLECTIONS = ["monitors", "checks", "incidents", "notification_channels"]
+COLLECTIONS = ["monitors", "checks", "incidents", "notification_channels", "users"]
 
 
 @pytest_asyncio.fixture
@@ -53,3 +54,8 @@ async def incident_repo(test_db):
 @pytest_asyncio.fixture
 async def notification_repo(test_db):
     return NotificationRepository(test_db)
+
+
+@pytest_asyncio.fixture
+async def user_repo(test_db):
+    return UserRepository(test_db)

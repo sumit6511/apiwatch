@@ -11,6 +11,7 @@ class CheckDocument(BaseModel):
 
     id: PyObjectId = Field(alias="_id")
     monitor_id: PyObjectId
+    owner_id: PyObjectId
     status: MonitorStatus
     http_status: int | None
     response_time_ms: int

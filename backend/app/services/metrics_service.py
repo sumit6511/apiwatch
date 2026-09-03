@@ -26,8 +26,8 @@ class MetricsService:
         self._check_repo = check_repo
         self._monitor_repo = monitor_repo
 
-    async def get_metrics(self, monitor_id: str, period: str) -> list[MetricPoint]:
-        monitor = await self._monitor_repo.get(monitor_id)
+    async def get_metrics(self, monitor_id: str, owner_id: str, period: str) -> list[MetricPoint]:
+        monitor = await self._monitor_repo.get(monitor_id, owner_id)
         if monitor is None:
             raise MonitorNotFoundError()
 
@@ -46,8 +46,8 @@ class MetricsService:
             for d in docs
         ]
 
-    async def get_uptime(self, monitor_id: str, period: str) -> UptimeStats:
-        monitor = await self._monitor_repo.get(monitor_id)
+    async def get_uptime(self, monitor_id: str, owner_id: str, period: str) -> UptimeStats:
+        monitor = await self._monitor_repo.get(monitor_id, owner_id)
         if monitor is None:
             raise MonitorNotFoundError()
 
@@ -64,12 +64,12 @@ class MetricsService:
             failed_checks=total - successful,
         )
 
-    async def get_dashboard_summary(self) -> dict[str, Any]:
-        total = await self._monitor_repo.total_count()
-        counts = await self._monitor_repo.count_by_status()
+    async def get_dashboard_summary(self, owner_id: str) -> dict[str, Any]:
+        total = await self._monitor_repo.total_count(owner_id)
+        counts = await self._monitor_repo.count_by_status(owner_id)
 
         since_24h = datetime.now(UTC) - timedelta(hours=24)
-        global_stats = await self._check_repo.global_uptime_stats(since_24h)
+        global_stats = await self._check_repo.global_uptime_stats(owner_id, since_24h)
         total_checks = global_stats["total"]
         successful = global_stats["successful"]
         overall_uptime = round((successful / total_checks) * 100, 2) if total_checks > 0 else None

@@ -44,24 +44,25 @@ class CheckService:
     async def list_checks(
         self,
         monitor_id: str,
+        owner_id: str,
         from_dt: datetime | None = None,
         to_dt: datetime | None = None,
         limit: int = 100,
     ) -> list[CheckOut]:
-        monitor = await self._monitor_repo.get(monitor_id)
+        monitor = await self._monitor_repo.get(monitor_id, owner_id)
         if monitor is None:
             raise MonitorNotFoundError()
         docs = await self._check_repo.list_for_monitor(monitor_id, from_dt, to_dt, limit)
         return [check_doc_to_out(d) for d in docs]
 
-    async def run_manual_check(self, monitor_id: str) -> ManualCheckResult:
+    async def run_manual_check(self, monitor_id: str, owner_id: str) -> ManualCheckResult:
         """Manual "Run Check" on an existing monitor (section 32/33). Design
         decision: unlike an ad-hoc test-request, this DOES record a check to
         history and updates monitor state/incidents just like a scheduled
         check -- it's the same action the user sees reflected in "Recent
         Checks" and the uptime chart, and matches the immediate first-check
         behavior described in section 22."""
-        monitor = await self._monitor_repo.get(monitor_id)
+        monitor = await self._monitor_repo.get(monitor_id, owner_id)
         if monitor is None:
             raise MonitorNotFoundError()
 

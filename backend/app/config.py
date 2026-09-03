@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # production and the frontend's AccessGate will prompt for it.
     api_access_key: str = ""
 
+    # Per-user auth (on top of the shared api_access_key gate above). Signing
+    # key for user session JWTs -- keep this secret and stable; rotating it
+    # invalidates every logged-in session.
+    jwt_secret_key: str
+    jwt_expire_days: int = 30
+
     # Frontend / CORS
     frontend_url: str = "http://localhost:5173"
     cors_origins: str = "http://localhost:5173"

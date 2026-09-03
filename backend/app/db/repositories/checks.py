@@ -54,9 +54,9 @@ class CheckRepository:
             return {"total": doc["total"], "successful": doc["successful"]}
         return {"total": 0, "successful": 0}
 
-    async def global_uptime_stats(self, since: datetime) -> dict[str, int]:
+    async def global_uptime_stats(self, owner_id: str, since: datetime) -> dict[str, int]:
         pipeline = [
-            {"$match": {"checked_at": {"$gte": since}}},
+            {"$match": {"owner_id": ObjectId(owner_id), "checked_at": {"$gte": since}}},
             {
                 "$group": {
                     "_id": None,

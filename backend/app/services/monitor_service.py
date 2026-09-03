@@ -3,10 +3,13 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from bson import ObjectId
+
 from app.db.repositories.checks import CheckRepository
 from app.db.repositories.incidents import IncidentRepository
 from app.db.repositories.monitors import MonitorRepository
-from app.errors import MonitorNotFoundError
+from app.db.repositories.notifications import NotificationRepository
+from app.errors import AppError, MonitorNotFoundError
 from app.models.enums import MonitorStatus
 from app.monitoring.checker import MonitorChecker
 from app.monitoring.scheduler import SchedulerManager
@@ -28,12 +31,14 @@ class MonitorService:
         monitor_repo: MonitorRepository,
         check_repo: CheckRepository,
         incident_repo: IncidentRepository,
+        notification_repo: NotificationRepository,
         scheduler: SchedulerManager,
         checker: MonitorChecker,
     ):
         self._monitor_repo = monitor_repo
         self._check_repo = check_repo
         self._incident_repo = incident_repo
+        self._notification_repo = notification_repo
         self._scheduler = scheduler
         self._checker = checker
 
@@ -76,26 +81,39 @@ class MonitorService:
             updated_at=doc["updated_at"],
         )
 
-    async def list_all(self) -> list[MonitorOut]:
-        docs = await self._monitor_repo.list_all()
+    async def _validate_notification_channel_ids(self, channel_ids: list[str], owner_id: str) -> None:
+        if not channel_ids:
+            return
+        owned_count = await self._notification_repo.count_by_ids_and_owner(channel_ids, owner_id)
+        if owned_count != len(set(channel_ids)):
+            raise AppError(
+                "INVALID_NOTIFICATION_CHANNEL",
+                "One or more notification channels don't exist or aren't yours.",
+                422,
+            )
+
+    async def list_all(self, owner_id: str) -> list[MonitorOut]:
+        docs = await self._monitor_repo.list_all(owner_id)
         return list(await asyncio.gather(*(self._to_out(d) for d in docs)))
 
-    async def get(self, monitor_id: str) -> MonitorOut:
-        doc = await self._monitor_repo.get(monitor_id)
+    async def get(self, monitor_id: str, owner_id: str) -> MonitorOut:
+        doc = await self._monitor_repo.get(monitor_id, owner_id)
         if doc is None:
             raise MonitorNotFoundError()
         return await self._to_out(doc)
 
-    async def get_name(self, monitor_id: str) -> str | None:
+    async def get_name(self, monitor_id: str, owner_id: str) -> str | None:
         """Lightweight lookup (no uptime/latest-check aggregation) for
         contexts that only need the display name, e.g. joining incidents."""
-        doc = await self._monitor_repo.get(monitor_id)
+        doc = await self._monitor_repo.get(monitor_id, owner_id)
         return doc["name"] if doc else None
 
-    async def create(self, data: MonitorCreate) -> MonitorOut:
+    async def create(self, data: MonitorCreate, owner_id: str) -> MonitorOut:
         validated_url = await validate_url(data.url)
+        await self._validate_notification_channel_ids(data.notification_channel_ids, owner_id)
         now = datetime.now(UTC)
         document = {
+            "owner_id": ObjectId(owner_id),
             "name": data.name,
             "url": validated_url,
             "method": data.method,
@@ -120,40 +138,42 @@ class MonitorService:
         }
         created = await self._monitor_repo.create(document)
         monitor_id = str(created["_id"])
-        logger.info("monitor_created id=%s name=%s url=%s", monitor_id, data.name, validated_url)
+        logger.info("monitor_created id=%s owner_id=%s name=%s url=%s", monitor_id, owner_id, data.name, validated_url)
 
         # Run one immediate check (section 22) so the user isn't staring at
         # UNKNOWN until the first scheduled interval elapses.
         try:
             await self._checker.run_check(created)
-            created = await self._monitor_repo.get(monitor_id)
+            created = await self._monitor_repo.get(monitor_id, owner_id)
         except Exception:
             logger.exception("initial_check_failed monitor_id=%s", monitor_id)
 
         self._scheduler.add_or_update_job(monitor_id, data.interval_seconds)
         return await self._to_out(created)
 
-    async def update(self, monitor_id: str, data: MonitorUpdate) -> MonitorOut:
-        existing = await self._monitor_repo.get(monitor_id)
+    async def update(self, monitor_id: str, owner_id: str, data: MonitorUpdate) -> MonitorOut:
+        existing = await self._monitor_repo.get(monitor_id, owner_id)
         if existing is None:
             raise MonitorNotFoundError()
 
         fields = data.model_dump(exclude_unset=True)
         if "url" in fields:
             fields["url"] = await validate_url(fields["url"])
+        if "notification_channel_ids" in fields:
+            await self._validate_notification_channel_ids(fields["notification_channel_ids"], owner_id)
 
-        updated = await self._monitor_repo.update(monitor_id, fields) if fields else existing
+        updated = await self._monitor_repo.update(monitor_id, owner_id, fields) if fields else existing
 
         # Section 19: interval change -> remove old job, register new job.
         # add_or_update_job(replace_existing=True) does both in one call.
         if "interval_seconds" in fields and updated.get("is_active"):
             self._scheduler.add_or_update_job(monitor_id, updated["interval_seconds"])
 
-        logger.info("monitor_updated id=%s", monitor_id)
+        logger.info("monitor_updated id=%s owner_id=%s", monitor_id, owner_id)
         return await self._to_out(updated)
 
-    async def delete(self, monitor_id: str) -> None:
-        deleted = await self._monitor_repo.delete(monitor_id)
+    async def delete(self, monitor_id: str, owner_id: str) -> None:
+        deleted = await self._monitor_repo.delete(monitor_id, owner_id)
         if not deleted:
             raise MonitorNotFoundError()
         self._scheduler.remove_job(monitor_id)
@@ -161,21 +181,21 @@ class MonitorService:
         # behind referencing a monitor_id that no longer exists.
         await self._check_repo.delete_for_monitor(monitor_id)
         await self._incident_repo.delete_for_monitor(monitor_id)
-        logger.info("monitor_deleted id=%s", monitor_id)
+        logger.info("monitor_deleted id=%s owner_id=%s", monitor_id, owner_id)
 
-    async def pause(self, monitor_id: str) -> MonitorOut:
-        existing = await self._monitor_repo.get(monitor_id)
+    async def pause(self, monitor_id: str, owner_id: str) -> MonitorOut:
+        existing = await self._monitor_repo.get(monitor_id, owner_id)
         if existing is None:
             raise MonitorNotFoundError()
         updated = await self._monitor_repo.update(
-            monitor_id, {"is_active": False, "current_status": MonitorStatus.PAUSED}
+            monitor_id, owner_id, {"is_active": False, "current_status": MonitorStatus.PAUSED}
         )
         self._scheduler.remove_job(monitor_id)
-        logger.info("monitor_paused id=%s", monitor_id)
+        logger.info("monitor_paused id=%s owner_id=%s", monitor_id, owner_id)
         return await self._to_out(updated)
 
-    async def resume(self, monitor_id: str) -> MonitorOut:
-        existing = await self._monitor_repo.get(monitor_id)
+    async def resume(self, monitor_id: str, owner_id: str) -> MonitorOut:
+        existing = await self._monitor_repo.get(monitor_id, owner_id)
         if existing is None:
             raise MonitorNotFoundError()
 
@@ -193,6 +213,7 @@ class MonitorService:
         )
         updated = await self._monitor_repo.update(
             monitor_id,
+            owner_id,
             {
                 "is_active": True,
                 "current_status": resume_status,
@@ -203,10 +224,10 @@ class MonitorService:
 
         try:
             await self._checker.run_check(updated)
-            updated = await self._monitor_repo.get(monitor_id)
+            updated = await self._monitor_repo.get(monitor_id, owner_id)
         except Exception:
             logger.exception("resume_check_failed monitor_id=%s", monitor_id)
 
         self._scheduler.add_or_update_job(monitor_id, updated["interval_seconds"])
-        logger.info("monitor_resumed id=%s", monitor_id)
+        logger.info("monitor_resumed id=%s owner_id=%s", monitor_id, owner_id)
         return await self._to_out(updated)

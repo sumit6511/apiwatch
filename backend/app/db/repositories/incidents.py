@@ -32,8 +32,12 @@ class IncidentRepository:
         )
         return [doc async for doc in cursor]
 
-    async def list_all(self, limit: int = 100) -> list[dict[str, Any]]:
-        cursor = self._collection.find({}).sort("started_at", -1).limit(min(limit, 500))
+    async def list_all(self, owner_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        cursor = (
+            self._collection.find({"owner_id": ObjectId(owner_id)})
+            .sort("started_at", -1)
+            .limit(min(limit, 500))
+        )
         return [doc async for doc in cursor]
 
     async def delete_for_monitor(self, monitor_id: str) -> int:

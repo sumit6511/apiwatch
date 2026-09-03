@@ -140,3 +140,14 @@ export interface DashboardSummary {
 export interface ApiErrorBody {
   error: { code: string; message: string };
 }
+
+export interface User {
+  id: string;
+  email: string;
+  created_at: string;
+}
+
+export interface TokenResponse {
+  token: string;
+  user: User;
+}

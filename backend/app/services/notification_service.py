@@ -1,6 +1,8 @@
 import logging
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
+
+from bson import ObjectId
 
 from app.db.repositories.notifications import NotificationRepository
 from app.errors import NotificationFailedError, NotificationNotFoundError
@@ -35,12 +37,13 @@ class NotificationService:
             created_at=doc["created_at"],
         )
 
-    async def list_all(self) -> list[NotificationChannelOut]:
-        docs = await self._repo.list_all()
+    async def list_all(self, owner_id: str) -> list[NotificationChannelOut]:
+        docs = await self._repo.list_all(owner_id)
         return [self._to_out(d) for d in docs]
 
-    async def create(self, data: NotificationChannelCreate) -> NotificationChannelOut:
+    async def create(self, data: NotificationChannelCreate, owner_id: str) -> NotificationChannelOut:
         document = {
+            "owner_id": ObjectId(owner_id),
             "type": data.type,
             "name": data.name,
             "webhook_url_encrypted": encrypt_secret(data.webhook_url),
@@ -48,11 +51,13 @@ class NotificationService:
             "created_at": datetime.now(UTC),
         }
         created = await self._repo.create(document)
-        logger.info("notification_channel_created id=%s type=%s", created["_id"], data.type)
+        logger.info("notification_channel_created id=%s owner_id=%s type=%s", created["_id"], owner_id, data.type)
         return self._to_out(created)
 
-    async def update(self, channel_id: str, data: NotificationChannelUpdate) -> NotificationChannelOut:
-        existing = await self._repo.get(channel_id)
+    async def update(
+        self, channel_id: str, owner_id: str, data: NotificationChannelUpdate
+    ) -> NotificationChannelOut:
+        existing = await self._repo.get(channel_id, owner_id)
         if existing is None:
             raise NotificationNotFoundError()
 
@@ -64,18 +69,18 @@ class NotificationService:
         if data.enabled is not None:
             fields["enabled"] = data.enabled
 
-        updated = await self._repo.update(channel_id, fields) if fields else existing
-        logger.info("notification_channel_updated id=%s", channel_id)
+        updated = await self._repo.update(channel_id, owner_id, fields) if fields else existing
+        logger.info("notification_channel_updated id=%s owner_id=%s", channel_id, owner_id)
         return self._to_out(updated)
 
-    async def delete(self, channel_id: str) -> None:
-        deleted = await self._repo.delete(channel_id)
+    async def delete(self, channel_id: str, owner_id: str) -> None:
+        deleted = await self._repo.delete(channel_id, owner_id)
         if not deleted:
             raise NotificationNotFoundError()
-        logger.info("notification_channel_deleted id=%s", channel_id)
+        logger.info("notification_channel_deleted id=%s owner_id=%s", channel_id, owner_id)
 
-    async def test(self, channel_id: str) -> None:
-        doc = await self._repo.get(channel_id)
+    async def test(self, channel_id: str, owner_id: str) -> None:
+        doc = await self._repo.get(channel_id, owner_id)
         if doc is None:
             raise NotificationNotFoundError()
 
@@ -95,7 +100,10 @@ class NotificationService:
 
     async def send_to_channels(self, channel_ids: list[str], event: NotificationEvent) -> None:
         """Best-effort fan-out: a failure on one channel must not affect others
-        or the monitoring pipeline that triggered this."""
+        or the monitoring pipeline that triggered this. No owner_id here --
+        called from the background checker with channel ids that were already
+        validated to belong to the monitor's owner when the monitor was saved
+        (see MonitorService._validate_notification_channel_ids)."""
         if not channel_ids:
             return
         channels = await self._repo.list_enabled_by_ids(channel_ids)

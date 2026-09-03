@@ -10,6 +10,7 @@ class MonitorDocument(BaseModel):
     """Shape of a document in the `monitors` collection."""
 
     id: PyObjectId = Field(alias="_id")
+    owner_id: PyObjectId
     name: str
     url: str
     method: HttpMethod = HttpMethod.GET
