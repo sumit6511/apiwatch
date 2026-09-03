@@ -1,0 +1,142 @@
+export type MonitorStatus = "UP" | "DOWN" | "PAUSED" | "UNKNOWN";
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
+export type IncidentStatus = "OPEN" | "RESOLVED";
+export type Period = "24h" | "7d" | "30d";
+export type NotificationType = "discord";
+
+export interface UptimeSummary {
+  period_24h: number | null;
+  period_7d: number | null;
+  period_30d: number | null;
+}
+
+export interface Monitor {
+  id: string;
+  name: string;
+  url: string;
+  method: HttpMethod;
+  headers: Record<string, string>;
+  body: Record<string, unknown> | string | null;
+  interval_seconds: number;
+  timeout_seconds: number;
+  expected_status_codes: number[];
+  notification_channel_ids: string[];
+  is_active: boolean;
+  status: MonitorStatus;
+  http_status: number | null;
+  response_time_ms: number | null;
+  failure_count: number;
+  success_count: number;
+  last_checked_at: string | null;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  uptime: UptimeSummary | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MonitorCreateInput {
+  name: string;
+  url: string;
+  method: HttpMethod;
+  headers: Record<string, string>;
+  body: Record<string, unknown> | string | null;
+  interval_seconds: number;
+  timeout_seconds: number;
+  expected_status_codes: number[];
+  notification_channel_ids: string[];
+}
+
+export type MonitorUpdateInput = Partial<MonitorCreateInput>;
+
+export interface MonitorTestRequestInput {
+  url: string;
+  method: HttpMethod;
+  headers: Record<string, string>;
+  body: Record<string, unknown> | string | null;
+  timeout_seconds: number;
+  expected_status_codes: number[];
+}
+
+export interface Check {
+  id: string;
+  monitor_id: string;
+  status: MonitorStatus;
+  http_status: number | null;
+  response_time_ms: number;
+  error: string | null;
+  checked_at: string;
+}
+
+export interface ManualCheckResult {
+  status: MonitorStatus;
+  http_status: number | null;
+  response_time_ms: number;
+  error: string | null;
+}
+
+export interface MetricPoint {
+  timestamp: string;
+  response_time_ms: number;
+  status: MonitorStatus;
+  http_status: number | null;
+}
+
+export interface UptimeStats {
+  period: Period;
+  uptime_percentage: number | null;
+  total_checks: number;
+  successful_checks: number;
+  failed_checks: number;
+}
+
+export interface Incident {
+  id: string;
+  monitor_id: string;
+  monitor_name: string | null;
+  status: IncidentStatus;
+  reason: string;
+  started_at: string;
+  resolved_at: string | null;
+  duration_seconds: number | null;
+}
+
+export interface NotificationChannel {
+  id: string;
+  type: NotificationType;
+  name: string;
+  webhook_url_masked: string;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface NotificationChannelCreateInput {
+  type: NotificationType;
+  name: string;
+  webhook_url: string;
+  enabled: boolean;
+}
+
+export interface NotificationChannelUpdateInput {
+  name?: string;
+  webhook_url?: string;
+  enabled?: boolean;
+}
+
+export interface NotificationTestResult {
+  success: boolean;
+  message: string;
+}
+
+export interface DashboardSummary {
+  total_monitors: number;
+  operational: number;
+  down: number;
+  paused: number;
+  unknown: number;
+  overall_uptime_percentage: number | null;
+}
+
+export interface ApiErrorBody {
+  error: { code: string; message: string };
+}

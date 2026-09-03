@@ -1,0 +1,133 @@
+import { useNavigate } from "react-router-dom";
+import { MoreVertical, Pause, Pencil, Play, Trash2, Zap } from "lucide-react";
+import { useState } from "react";
+
+import type { Monitor } from "../../types";
+import { StatusIndicator } from "../common/Status";
+import { MethodBadge } from "../common/MethodBadge";
+import { DropdownMenu, DropdownMenuItem } from "../common/DropdownMenu";
+import { ConfirmDialog } from "../common/ConfirmDialog";
+import { Sparkline } from "../charts/Sparkline";
+import { useChecks } from "../../hooks/useChecks";
+import { useDeleteMonitor, usePauseMonitor, useResumeMonitor, useRunManualCheck } from "../../hooks/useMonitors";
+import { useToast } from "../common/Toast";
+import { formatRelativeTime, formatResponseTime, formatUptime } from "../../lib/format";
+
+export function MonitorCard({ monitor }: { monitor: Monitor }) {
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const { data: checks } = useChecks(monitor.id, 20);
+  const pauseMonitor = usePauseMonitor();
+  const resumeMonitor = useResumeMonitor();
+  const runCheck = useRunManualCheck();
+  const deleteMonitor = useDeleteMonitor();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const sparklinePoints = (checks ?? [])
+    .slice()
+    .reverse()
+    .map((c) => ({ value: c.response_time_ms, status: c.status }));
+
+  const handlePauseResume = async () => {
+    try {
+      if (monitor.is_active) {
+        await pauseMonitor.mutateAsync(monitor.id);
+        showToast("success", `${monitor.name} paused`);
+      } else {
+        await resumeMonitor.mutateAsync(monitor.id);
+        showToast("success", `${monitor.name} resumed`);
+      }
+    } catch {
+      showToast("error", "Unable to update monitor");
+    }
+  };
+
+  const handleRunCheck = async () => {
+    try {
+      await runCheck.mutateAsync(monitor.id);
+      showToast("success", "Health check completed");
+    } catch {
+      showToast("error", "Health check failed to run");
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      await deleteMonitor.mutateAsync(monitor.id);
+      showToast("success", `${monitor.name} deleted`);
+    } catch {
+      showToast("error", "Unable to delete monitor");
+    } finally {
+      setConfirmDelete(false);
+    }
+  };
+
+  return (
+    <div className="card-interactive group relative flex flex-col p-4">
+      <button
+        type="button"
+        onClick={() => navigate(`/monitors/${monitor.id}`)}
+        className="absolute inset-0 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        aria-label={`View ${monitor.name} details`}
+      />
+
+      <div className="relative flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <StatusIndicator status={monitor.status} />
+          <h3 className="mt-1 truncate text-sm font-semibold text-text">{monitor.name}</h3>
+        </div>
+        <div className="relative z-10 shrink-0">
+          <DropdownMenu trigger={<MoreVertical size={16} />} label={`Actions for ${monitor.name}`}>
+            <DropdownMenuItem icon={<Zap size={14} />} onClick={() => void handleRunCheck()}>
+              Run check
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              icon={monitor.is_active ? <Pause size={14} /> : <Play size={14} />}
+              onClick={() => void handlePauseResume()}
+            >
+              {monitor.is_active ? "Pause" : "Resume"}
+            </DropdownMenuItem>
+            <DropdownMenuItem icon={<Pencil size={14} />} onClick={() => navigate(`/monitors/${monitor.id}/edit`)}>
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem icon={<Trash2 size={14} />} danger onClick={() => setConfirmDelete(true)}>
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2 text-xs text-muted">
+        <MethodBadge method={monitor.method} />
+        <span className="mono-value truncate">{monitor.url}</span>
+      </div>
+
+      <div className="mt-4 flex items-end justify-between">
+        <div className="mono-value text-sm text-text">
+          {monitor.http_status ?? "—"}
+          <span className="ml-2 text-muted">
+            {monitor.response_time_ms !== null ? formatResponseTime(monitor.response_time_ms) : "—"}
+          </span>
+        </div>
+        <div className="mono-value text-xs text-muted">{formatUptime(monitor.uptime?.period_24h ?? null)} uptime</div>
+      </div>
+
+      <div className="mt-3">
+        <Sparkline points={sparklinePoints} />
+      </div>
+
+      <div className="mt-3 text-xs text-muted">Checked {formatRelativeTime(monitor.last_checked_at)}</div>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`Delete ${monitor.name}?`}
+        description="This permanently removes the monitor along with its check history and incidents. This cannot be undone."
+        confirmLabel="Delete monitor"
+        danger
+        busy={deleteMonitor.isPending}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setConfirmDelete(false)}
+      />
+    </div>
+  );
+}

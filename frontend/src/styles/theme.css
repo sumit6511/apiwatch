@@ -1,0 +1,84 @@
+/* APIWatch design tokens -- dark-first, technical/observability palette.
+   Single source of truth; uno.config.ts exposes these as named colors
+   (bg / surface / edge / text / muted / accent / success / danger / warning)
+   so component code reads `bg-surface`, not raw hex or var(...). */
+:root {
+  color-scheme: dark;
+
+  --aw-bg: #0b0d12;
+  --aw-surface: #12151c;
+  --aw-surface-2: #1a1e28;
+  --aw-border: #262b36;
+
+  --aw-text: #e8eaed;
+  --aw-muted: #8a8f9c;
+
+  --aw-accent: #3fe0a5;
+  --aw-accent-dim: rgba(63, 224, 165, 0.14);
+
+  --aw-success: #30a46c;
+  --aw-success-dim: rgba(48, 164, 108, 0.14);
+
+  --aw-danger: #e5484d;
+  --aw-danger-dim: rgba(229, 72, 77, 0.14);
+
+  --aw-warning: #f5a623;
+  --aw-warning-dim: rgba(245, 166, 35, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--aw-bg);
+  color: var(--aw-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--aw-accent-dim);
+  color: var(--aw-text);
+}
+
+/* Thin, unobtrusive scrollbars matching the technical aesthetic. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--aw-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--aw-border);
+  border-radius: 8px;
+  border: 2px solid var(--aw-bg);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
