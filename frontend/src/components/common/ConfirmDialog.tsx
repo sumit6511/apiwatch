@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { AlertTriangle } from "lucide-react";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -46,9 +47,16 @@ export function ConfirmDialog({
       }}
       className="card-base w-full max-w-sm bg-surface p-0 text-text backdrop:bg-black/60"
     >
-      <div className="p-5">
-        <h2 className="section-title">{title}</h2>
-        {description && <p className="mt-2 text-sm text-muted">{description}</p>}
+      <div className="flex gap-3 p-5">
+        {danger && (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-danger-dim text-danger">
+            <AlertTriangle size={18} aria-hidden="true" />
+          </div>
+        )}
+        <div>
+          <h2 className="section-title">{title}</h2>
+          {description && <p className="mt-2 text-sm text-muted">{description}</p>}
+        </div>
       </div>
       <div className="flex justify-end gap-2 border-t border-edge px-5 py-3">
         <button type="button" className="btn-secondary" onClick={onCancel} disabled={busy}>

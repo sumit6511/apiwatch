@@ -27,7 +27,14 @@ function RealtimeIndicator({ status }: { status: RealtimeStatus }) {
       className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted"
       title={status === "connected" ? "Live updates connected" : "Live updates unavailable -- falling back to polling"}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${meta.dotClass}`} aria-hidden="true" />
+      {/* Same animate-ping ripple as StatusDot's `pulse` -- only while
+          actually connected, so it reads as "live" rather than decoration. */}
+      <span className="relative inline-flex h-1.5 w-1.5 shrink-0">
+        {status === "connected" && (
+          <span className={`absolute inline-flex h-full w-full animate-ping rounded-full ${meta.dotClass} opacity-60`} />
+        )}
+        <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${meta.dotClass}`} />
+      </span>
       {meta.label}
     </span>
   );

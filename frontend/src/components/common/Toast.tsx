@@ -7,6 +7,7 @@ interface ToastItem {
   id: number;
   kind: ToastKind;
   message: string;
+  leaving: boolean;
 }
 
 interface ToastContextValue {
@@ -16,19 +17,27 @@ interface ToastContextValue {
 const ToastContext = createContext<ToastContextValue | null>(null);
 
 const AUTO_DISMISS_MS = 4500;
+const EXIT_ANIMATION_MS = 180;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextId = useRef(0);
 
+  // Two-step removal: mark "leaving" so the exit animation can play, then
+  // actually drop it from the array once that animation has had time to
+  // finish -- removing it immediately would just cut the toast out with no
+  // transition, a jump-cut rather than a dismissal.
   const dismiss = useCallback((id: number) => {
-    setToasts((current) => current.filter((t) => t.id !== id));
+    setToasts((current) => current.map((t) => (t.id === id ? { ...t, leaving: true } : t)));
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((t) => t.id !== id));
+    }, EXIT_ANIMATION_MS);
   }, []);
 
   const showToast = useCallback(
     (kind: ToastKind, message: string) => {
       const id = nextId.current++;
-      setToasts((current) => [...current, { id, kind, message }]);
+      setToasts((current) => [...current, { id, kind, message, leaving: false }]);
       window.setTimeout(() => dismiss(id), AUTO_DISMISS_MS);
     },
     [dismiss],
@@ -46,7 +55,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={toast.id}
             role="status"
-            className="card-base pointer-events-auto flex items-start gap-2.5 px-4 py-3 shadow-lg animate-[toast-in_0.18s_ease-out]"
+            className={`card-base pointer-events-auto flex items-start gap-2.5 px-4 py-3 shadow-lg ${
+              toast.leaving ? "animate-[toast-out_0.18s_ease-in_forwards]" : "animate-[toast-in_0.18s_ease-out]"
+            }`}
           >
             {toast.kind === "success" ? (
               <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-success" />
