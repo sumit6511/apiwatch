@@ -64,6 +64,14 @@ class Settings(BaseSettings):
     manual_check_throttle_seconds: int = 5
     max_redirects: int = 5
 
+    # Per-account monitor-creation abuse guards. A scheduled monitor checks
+    # forever on its interval, so the real risk isn't the creation burst
+    # itself -- it's the sustained outbound request volume an account can
+    # aim at a third party. The cap bounds that regardless of timing; the
+    # cooldown additionally slows down scripted burst creation.
+    max_monitors_per_owner: int = 20
+    monitor_create_cooldown_seconds: int = 10
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

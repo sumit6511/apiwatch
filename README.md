@@ -52,6 +52,7 @@ You give APIWatch a URL, an HTTP method, an interval, and what a "healthy" respo
 - Configurable data retention for check history (incidents are kept)
 - Optional shared-secret access key protecting the whole API/UI on public deployments, with zero setup for local dev
 - Multi-user accounts (email/password) — every account's monitors, checks, incidents, and notification channels are private to it
+- Per-account monitor-creation limits (total cap + cooldown) to prevent abuse
 
 ## Architecture
 
@@ -176,6 +177,15 @@ Set both `API_ACCESS_KEY` and `JWT_SECRET_KEY` on any deployment reachable from 
 
 **Existing data migration:** monitors created before this feature shipped have no `owner_id` and become invisible to every account once ownership filtering is live (not deleted — just unmatched by any `{owner_id: ...}` query). `backend/scripts/assign_orphaned_monitors.py` is a one-off, not-part-of-the-app script to assign them to a specific account after you've signed up: `python scripts/assign_orphaned_monitors.py you@example.com --apply` (dry-run without `--apply`).
 
+### Monitor-creation abuse guards
+
+Since signup only requires knowing the deployment access key (not an invite tied to a specific person), and a scheduled monitor checks a URL forever on its interval, an account could otherwise aim a large and growing amount of outbound traffic at a third party just by creating enough monitors. Two guards in `MonitorService`, both per-account:
+
+- **`MAX_MONITORS_PER_OWNER`** (default 20) — a hard cap on total monitors, checked against a real count on every create. Bounds the worst case regardless of timing; deleting a monitor frees a slot, pausing doesn't.
+- **`MONITOR_CREATE_COOLDOWN_SECONDS`** (default 10) — minimum gap between creates for the same account, same in-memory last-timestamp pattern as the existing manual-check throttle (`CheckService`). Slows down scripted burst creation specifically.
+
+Both surface as a normal `AppError` (`MONITOR_LIMIT_EXCEEDED` / `RATE_LIMITED`) that the create-monitor form already displays via its existing error-message handling — no special-casing needed on the frontend.
+
 ## Tech Stack
 
 **Frontend:** React 19, TypeScript (strict), Vite, UnoCSS (no Tailwind, no shadcn/ui — a small custom component system built directly on UnoCSS utilities/shortcuts), TanStack Query, React Router, Recharts, Lucide icons.
@@ -292,6 +302,7 @@ See [`.env.example`](.env.example) for the full annotated list. The important on
 | `ENCRYPTION_KEY` | Fernet key used to encrypt Discord webhook URLs at rest |
 | `API_ACCESS_KEY` | Shared secret protecting the API — empty disables auth (local dev); **set this on any public deployment** |
 | `JWT_SECRET_KEY` / `JWT_EXPIRE_DAYS` | Signs per-account login sessions — required, no default; rotating it logs everyone out |
+| `MAX_MONITORS_PER_OWNER` / `MONITOR_CREATE_COOLDOWN_SECONDS` | Per-account monitor-creation abuse guards (default 20 monitors, 10s between creates) |
 | `CORS_ORIGINS` | Comma-separated allow-list for the frontend origin(s) |
 | `ENABLE_SCHEDULER` | Keep `true` on exactly one backend instance — see below |
 | `VITE_API_URL` (frontend) | Backend URL the browser talks to |
@@ -355,7 +366,7 @@ Pulling the scheduler out into its own worker process (talking to the same Mongo
 
 ## Testing
 
-**Backend** (`cd backend && pytest`) — 88 tests against a real MongoDB Atlas database (`apiwatch_test`, separate from the dev database, wiped between tests), with outbound HTTP mocked via `respx`:
+**Backend** (`cd backend && pytest`) — 90 tests against a real MongoDB Atlas database (`apiwatch_test`, separate from the dev database, wiped between tests), with outbound HTTP mocked via `respx`:
 
 - URL validator: valid/invalid schemes, localhost, loopback, private ranges (v4 + v6), the cloud metadata address, IPv4-mapped IPv6
 - Monitor CRUD, pause/resume, and scheduler job lifecycle (including the pause/resume-while-down regression test)
@@ -366,6 +377,7 @@ Pulling the scheduler out into its own worker process (talking to the same Mongo
 - Uptime: 100%/50%/0%, empty-data returns `null` (never a fabricated 100%), period windowing
 - Auth: signup hashes the password (never stores plaintext), duplicate email rejected, wrong-password and unknown-email login both rejected identically, JWT round-trip, expired/malformed/mis-signed tokens rejected
 - Ownership isolation: a monitor/notification channel created by one account is a 404 (not a 403 that would leak existence) to another account on every read/write path, `list_all`/dashboard-summary/all-incidents scoped per caller, and a monitor can't reference another account's notification channel
+- Monitor-creation abuse guards: rejected once the per-account cap is reached, throttled by the per-account cooldown, both scoped so one account never blocks another
 
 **Frontend** (`cd frontend && npm run test`) — Vitest + React Testing Library, focused on behavior: status badges always render text (not color alone), form validation (including a real bug this caught — `Number("")` evaluating to `0` in JS, which silently turned a cleared "expected status codes" field into `[0]` instead of `[]`), monitor card actions, incident card states, check history rendering, the access-key and login gates (including that a locked-out account sees the right lock screen when the *other* gate is what actually failed).
 

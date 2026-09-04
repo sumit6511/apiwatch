@@ -52,6 +52,11 @@ class RateLimitedError(AppError):
         super().__init__("RATE_LIMITED", message, status.HTTP_429_TOO_MANY_REQUESTS)
 
 
+class MonitorLimitExceededError(AppError):
+    def __init__(self, message: str):
+        super().__init__("MONITOR_LIMIT_EXCEEDED", message, status.HTTP_403_FORBIDDEN)
+
+
 class NotificationNotFoundError(AppError):
     def __init__(self, message: str = "Notification channel not found."):
         super().__init__("NOTIFICATION_NOT_FOUND", message, status.HTTP_404_NOT_FOUND)

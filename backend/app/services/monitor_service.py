@@ -5,11 +5,12 @@ from typing import Any
 
 from bson import ObjectId
 
+from app.config import get_settings
 from app.db.repositories.checks import CheckRepository
 from app.db.repositories.incidents import IncidentRepository
 from app.db.repositories.monitors import MonitorRepository
 from app.db.repositories.notifications import NotificationRepository
-from app.errors import AppError, MonitorNotFoundError
+from app.errors import AppError, MonitorLimitExceededError, MonitorNotFoundError, RateLimitedError
 from app.models.enums import MonitorStatus
 from app.monitoring.checker import MonitorChecker
 from app.monitoring.scheduler import SchedulerManager
@@ -41,6 +42,12 @@ class MonitorService:
         self._notification_repo = notification_repo
         self._scheduler = scheduler
         self._checker = checker
+        # In-memory, per-owner creation cooldown -- same pattern as
+        # CheckService's manual-check throttle. Single-instance assumption
+        # is fine here for the same reason it's fine there (see README
+        # "Scheduler Architecture"): this app runs as one backend process.
+        self._last_create: dict[str, float] = {}
+        self._create_lock = asyncio.Lock()
 
     async def _to_out(self, doc: dict[str, Any]) -> MonitorOut:
         monitor_id = str(doc["_id"])
@@ -108,7 +115,27 @@ class MonitorService:
         doc = await self._monitor_repo.get(monitor_id, owner_id)
         return doc["name"] if doc else None
 
+    async def _enforce_creation_limits(self, owner_id: str) -> None:
+        settings = get_settings()
+
+        existing_count = await self._monitor_repo.total_count(owner_id)
+        if existing_count >= settings.max_monitors_per_owner:
+            raise MonitorLimitExceededError(
+                f"You've reached the limit of {settings.max_monitors_per_owner} monitors per account. "
+                "Delete an existing monitor to add a new one."
+            )
+
+        async with self._create_lock:
+            now_ts = datetime.now(UTC).timestamp()
+            last = self._last_create.get(owner_id)
+            cooldown = settings.monitor_create_cooldown_seconds
+            if last is not None and (now_ts - last) < cooldown:
+                wait = cooldown - (now_ts - last)
+                raise RateLimitedError(f"Please wait {wait:.0f}s before creating another monitor.")
+            self._last_create[owner_id] = now_ts
+
     async def create(self, data: MonitorCreate, owner_id: str) -> MonitorOut:
+        await self._enforce_creation_limits(owner_id)
         validated_url = await validate_url(data.url)
         await self._validate_notification_channel_ids(data.notification_channel_ids, owner_id)
         now = datetime.now(UTC)

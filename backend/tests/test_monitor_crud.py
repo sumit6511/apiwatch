@@ -4,7 +4,8 @@ import pytest_asyncio
 import respx
 from bson import ObjectId
 
-from app.errors import MonitorNotFoundError, SSRFBlockedError
+from app.config import get_settings
+from app.errors import MonitorLimitExceededError, MonitorNotFoundError, RateLimitedError, SSRFBlockedError
 from app.models.enums import MonitorStatus
 from app.monitoring.checker import MonitorChecker
 from app.monitoring.scheduler import SchedulerManager
@@ -225,3 +226,40 @@ async def test_create_rejects_notification_channel_owned_by_someone_else(monitor
             ),
             OWNER_ID,
         )
+
+
+# ── Creation abuse guards ────────────────────────────────────────────────
+
+
+@respx.mock
+async def test_create_rejected_once_the_per_owner_cap_is_reached(monitor_service, monkeypatch):
+    monkeypatch.setattr(get_settings(), "max_monitors_per_owner", 2)
+    monkeypatch.setattr(get_settings(), "monitor_create_cooldown_seconds", 0)
+    respx.get(TEST_URL).mock(return_value=httpx.Response(200))
+
+    await monitor_service.create(MonitorCreate(name="one", url=TEST_URL, interval_seconds=30), OWNER_ID)
+    await monitor_service.create(MonitorCreate(name="two", url=TEST_URL, interval_seconds=30), OWNER_ID)
+
+    with pytest.raises(MonitorLimitExceededError):
+        await monitor_service.create(MonitorCreate(name="three", url=TEST_URL, interval_seconds=30), OWNER_ID)
+
+    # The cap is per-owner -- a different account is unaffected.
+    await monitor_service.create(
+        MonitorCreate(name="theirs", url=TEST_URL, interval_seconds=30), OTHER_OWNER_ID
+    )
+
+
+@respx.mock
+async def test_create_throttled_by_the_per_owner_cooldown(monitor_service, monkeypatch):
+    monkeypatch.setattr(get_settings(), "monitor_create_cooldown_seconds", 60)
+    respx.get(TEST_URL).mock(return_value=httpx.Response(200))
+
+    await monitor_service.create(MonitorCreate(name="first", url=TEST_URL, interval_seconds=30), OWNER_ID)
+
+    with pytest.raises(RateLimitedError):
+        await monitor_service.create(MonitorCreate(name="second", url=TEST_URL, interval_seconds=30), OWNER_ID)
+
+    # The cooldown is per-owner -- a different account can create immediately.
+    await monitor_service.create(
+        MonitorCreate(name="theirs", url=TEST_URL, interval_seconds=30), OTHER_OWNER_ID
+    )
