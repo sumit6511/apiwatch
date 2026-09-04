@@ -34,7 +34,7 @@ describe("AccessGate", () => {
     expect(await screen.findByText("Protected content")).toBeInTheDocument();
   });
 
-  it("shows the lock screen when the backend rejects with 401", async () => {
+  it("shows the public landing page (not the key form) when the backend rejects with 401", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -48,8 +48,30 @@ describe("AccessGate", () => {
       </AccessGate>,
     );
 
-    expect(await screen.findByText(/this deployment is protected/i)).toBeInTheDocument();
+    expect(await screen.findByText(/monitor your apis/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Access Key")).not.toBeInTheDocument();
     expect(screen.queryByText("Protected content")).not.toBeInTheDocument();
+  });
+
+  it("reveals the access-key form after clicking Sign In on the landing page", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({ error: { code: "UNAUTHORIZED", message: "x" } }, 401),
+      ),
+    );
+
+    render(
+      <AccessGate>
+        <div>Protected content</div>
+      </AccessGate>,
+    );
+
+    const user = userEvent.setup();
+    await user.click((await screen.findAllByRole("button", { name: "Sign In" }))[0]);
+
+    expect(screen.getByLabelText("Access Key")).toBeInTheDocument();
+    expect(screen.getByText(/this deployment is protected/i)).toBeInTheDocument();
   });
 
   it("unlocks and stores the key after a successful submission", async () => {
@@ -66,7 +88,8 @@ describe("AccessGate", () => {
     );
 
     const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("Access Key"), "correct-key");
+    await user.click((await screen.findAllByRole("button", { name: "Sign In" }))[0]);
+    await user.type(screen.getByLabelText("Access Key"), "correct-key");
     await user.click(screen.getByRole("button", { name: "Unlock" }));
 
     expect(await screen.findByText("Protected content")).toBeInTheDocument();
@@ -87,7 +110,8 @@ describe("AccessGate", () => {
     );
 
     const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("Access Key"), "wrong-key");
+    await user.click((await screen.findAllByRole("button", { name: "Sign In" }))[0]);
+    await user.type(screen.getByLabelText("Access Key"), "wrong-key");
     await user.click(screen.getByRole("button", { name: "Unlock" }));
 
     expect(await screen.findByText("Incorrect access key.")).toBeInTheDocument();

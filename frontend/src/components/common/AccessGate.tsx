@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Activity, Lock } from "lucide-react";
+import { Activity, ArrowLeft, Lock } from "lucide-react";
 
 import { apiClient, ApiError } from "../../api/client";
 import { setStoredAccessKey, UNAUTHORIZED_EVENT } from "../../lib/accessKey";
+import { Landing } from "../../pages/Landing";
 import { Spinner } from "./Spinner";
 
 type GateStatus = "checking" | "unlocked" | "locked";
@@ -11,9 +12,11 @@ type GateStatus = "checking" | "unlocked" | "locked";
  * has one configured. A lightweight authenticated GET is used to probe
  * whether a key is required at all -- if the backend has no
  * API_ACCESS_KEY set (local dev), this succeeds immediately and the gate
- * never shows. */
+ * never shows (and neither does the public landing page below -- that's
+ * only useful in front of a real deployment's access-key gate). */
 export function AccessGate({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<GateStatus>("checking");
+  const [showSignInForm, setShowSignInForm] = useState(false);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -42,7 +45,19 @@ export function AccessGate({ children }: { children: ReactNode }) {
   }, [probe]);
 
   useEffect(() => {
-    const handler = () => setStatus("locked");
+    const handler = () => {
+      // client.ts dispatches this on *every* 401 with this code -- including
+      // the very first mount-time probe, before the user has seen anything.
+      // Only treat it as "a previously-unlocked session got revoked" (skip
+      // straight to the key form) when we're past that initial check;
+      // otherwise let probe()'s own catch block transition to "locked"
+      // normally, showing the landing page first.
+      setStatus((current) => {
+        if (current === "checking") return current;
+        setShowSignInForm(true);
+        return "locked";
+      });
+    };
     window.addEventListener(UNAUTHORIZED_EVENT, handler);
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, handler);
   }, []);
@@ -78,10 +93,23 @@ export function AccessGate({ children }: { children: ReactNode }) {
     );
   }
 
+  if (status === "locked" && !showSignInForm) {
+    return <Landing onSignIn={() => setShowSignInForm(true)} />;
+  }
+
   if (status === "locked") {
     return (
       <div className="flex h-screen items-center justify-center bg-bg px-4">
         <form onSubmit={(e) => void handleSubmit(e)} className="card-base w-full max-w-sm p-6">
+          <button
+            type="button"
+            onClick={() => setShowSignInForm(false)}
+            className="mb-4 inline-flex items-center gap-1.5 text-xs text-muted hover:text-text"
+          >
+            <ArrowLeft size={13} />
+            Back
+          </button>
+
           <div className="mb-4 flex items-center gap-2">
             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-accent-dim text-accent">
               <Activity size={16} />
