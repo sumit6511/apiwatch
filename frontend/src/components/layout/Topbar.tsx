@@ -1,4 +1,4 @@
-import { Menu, Moon, Search, Settings as SettingsIcon, Sun } from "lucide-react";
+import { Menu, Moon, Search, Sun } from "lucide-react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import { useTheme } from "../../hooks/useTheme";
@@ -6,7 +6,7 @@ import { useTheme } from "../../hooks/useTheme";
 export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
-  const searchApplies = location.pathname === "/" || location.pathname === "/monitors";
+  const searchApplies = location.pathname === "/";
   const { theme, toggle: toggleTheme } = useTheme();
 
   return (
@@ -55,9 +55,6 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
         >
           {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
         </button>
-        <Link to="/settings" className="icon-btn" aria-label="Settings" title="Settings">
-          <SettingsIcon size={18} />
-        </Link>
       </div>
     </header>
   );

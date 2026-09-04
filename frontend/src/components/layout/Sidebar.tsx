@@ -1,14 +1,16 @@
 import { NavLink } from "react-router-dom";
-import { Activity, AlertCircle, LayoutGrid, LogOut, Settings as SettingsIcon } from "lucide-react";
+import { AlertCircle, Activity, LayoutGrid, LogOut, Settings as SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { useDashboardSummary } from "../../hooks/useDashboardSummary";
 import type { RealtimeStatus } from "../../hooks/useRealtimeUpdates";
 import { useAuth } from "../common/AuthGate";
 
+// One entry per distinct destination -- "Overview" and "Monitors" used to
+// be two nav items pointing at the same rendered page (see app/router.tsx),
+// which meant clicking between them changed nothing. Collapsed to one.
 const NAV_ITEMS: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
   { to: "/", label: "Overview", icon: <LayoutGrid size={18} />, end: true },
-  { to: "/monitors", label: "Monitors", icon: <Activity size={18} /> },
   { to: "/incidents", label: "Incidents", icon: <AlertCircle size={18} /> },
 ];
 

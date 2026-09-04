@@ -98,7 +98,7 @@ export function MonitorDetails() {
       <div>
         <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-text">
           <ArrowLeft size={14} />
-          Monitors
+          Overview
         </Link>
       </div>
 

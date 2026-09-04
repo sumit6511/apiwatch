@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
 
 import { AppShell } from "../components/layout/AppShell";
 import { Dashboard } from "../pages/Dashboard";
@@ -39,10 +39,12 @@ const router = createBrowserRouter([
     errorElement: <NotFound />,
     children: [
       { path: "/", element: <Dashboard /> },
-      // "Overview" and "Monitors" are two nav entries into the same
-      // metric-cards-plus-grid view (see spec sections 55/57-59) -- kept as
-      // one component mounted at both paths rather than duplicating it.
-      { path: "/monitors", element: <Dashboard /> },
+      // /monitors used to mount its own copy of the same page (spec
+      // sections 55/57-59 originally called for two nav entries into one
+      // view) -- collapsed to a single "Overview" entry in the sidebar, but
+      // the route stays as a redirect rather than disappearing outright, so
+      // an old bookmark or link still lands somewhere real.
+      { path: "/monitors", element: <Navigate to="/" replace /> },
       { path: "/monitors/new", element: lazyPage(<MonitorForm mode="create" />) },
       { path: "/monitors/:id/edit", element: lazyPage(<MonitorForm mode="edit" />) },
       { path: "/monitors/:id", element: lazyPage(<MonitorDetails />) },
