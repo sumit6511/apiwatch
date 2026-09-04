@@ -55,6 +55,13 @@ class EmailProvider(NotificationProvider):
         message["Subject"] = subject
         message.set_content(body)
 
+        # Port 465 is implicit TLS from the first byte of the connection;
+        # 587 (and everything else) is plaintext-then-upgrade via STARTTLS.
+        # Using the wrong mode for the port silently misbehaves or hangs, so
+        # this is derived from the configured port rather than a separate
+        # setting -- matches how every SMTP provider documents these two.
+        implicit_tls = settings.smtp_port == 465
+
         try:
             await aiosmtplib.send(
                 message,
@@ -62,7 +69,8 @@ class EmailProvider(NotificationProvider):
                 port=settings.smtp_port,
                 username=settings.smtp_username or None,
                 password=settings.smtp_password or None,
-                start_tls=True,
+                use_tls=implicit_tls,
+                start_tls=not implicit_tls,
                 timeout=10,
             )
         except aiosmtplib.SMTPException as exc:

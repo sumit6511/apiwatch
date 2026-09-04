@@ -154,6 +154,40 @@ async def test_email_provider_sends_via_smtp(monkeypatch):
     assert "DOWN" in sent_message["Subject"]
 
 
+async def test_email_provider_uses_starttls_on_port_587(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "smtp_port", 587)
+    monkeypatch.setattr(settings, "smtp_from_email", "alerts@example.com")
+
+    send_mock = AsyncMock(return_value=({}, "OK"))
+    monkeypatch.setattr("app.notifications.email.aiosmtplib.send", send_mock)
+
+    provider = EmailProvider()
+    event = NotificationEvent(event_type=NotificationEventType.TEST, monitor_name="X", monitor_url="")
+    await provider.send({"to_email": "me@example.com"}, event)
+
+    assert send_mock.call_args.kwargs["start_tls"] is True
+    assert send_mock.call_args.kwargs["use_tls"] is False
+
+
+async def test_email_provider_uses_implicit_tls_on_port_465(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "smtp_port", 465)
+    monkeypatch.setattr(settings, "smtp_from_email", "alerts@example.com")
+
+    send_mock = AsyncMock(return_value=({}, "OK"))
+    monkeypatch.setattr("app.notifications.email.aiosmtplib.send", send_mock)
+
+    provider = EmailProvider()
+    event = NotificationEvent(event_type=NotificationEventType.TEST, monitor_name="X", monitor_url="")
+    await provider.send({"to_email": "me@example.com"}, event)
+
+    assert send_mock.call_args.kwargs["use_tls"] is True
+    assert send_mock.call_args.kwargs["start_tls"] is False
+
+
 async def test_email_provider_raises_on_smtp_failure(monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
