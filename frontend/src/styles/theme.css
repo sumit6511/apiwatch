@@ -1,7 +1,14 @@
 /* APIWatch design tokens -- dark-first, technical/observability palette.
    Single source of truth; uno.config.ts exposes these as named colors
    (bg / surface / edge / text / muted / accent / success / danger / warning)
-   so component code reads `bg-surface`, not raw hex or var(...). */
+   so component code reads `bg-surface`, not raw hex or var(...) -- which is
+   exactly what makes the light theme below a pure token swap: no component
+   references a raw color anywhere, so every one of them repaints correctly
+   just from these variables changing. Applied via a `data-theme` attribute
+   on <html> (set synchronously in index.html, before first paint, to avoid
+   a flash of the wrong theme) rather than `prefers-color-scheme` alone, so
+   an explicit user choice (the Sidebar toggle) can override the system
+   setting and persist (frontend/src/lib/theme.ts). */
 :root {
   color-scheme: dark;
 
@@ -24,6 +31,33 @@
 
   --aw-warning: #f5a623;
   --aw-warning-dim: rgba(245, 166, 35, 0.14);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --aw-bg: #f6f7f9;
+  --aw-surface: #ffffff;
+  --aw-surface-2: #eef0f3;
+  --aw-border: #dfe3e8;
+
+  --aw-text: #1a1d24;
+  --aw-muted: #6b7280;
+
+  /* Same hue family as the dark theme's mint accent, deepened for AA
+     contrast against light backgrounds (btn-primary puts --aw-bg-colored
+     text directly on --aw-accent). */
+  --aw-accent: #0e9f6e;
+  --aw-accent-dim: rgba(14, 159, 110, 0.12);
+
+  --aw-success: #15803d;
+  --aw-success-dim: rgba(21, 128, 61, 0.12);
+
+  --aw-danger: #dc2626;
+  --aw-danger-dim: rgba(220, 38, 38, 0.12);
+
+  --aw-warning: #b45309;
+  --aw-warning-dim: rgba(180, 83, 9, 0.12);
 }
 
 * {

@@ -5,6 +5,26 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>APIWatch</title>
+    <script>
+      // Applied synchronously, before any CSS paints, so there's no flash
+      // of the wrong theme -- a React effect running after mount would be
+      // visibly too late. Kept deliberately tiny and defensive (private
+      // browsing can throw on localStorage access).
+      (function () {
+        try {
+          var stored = localStorage.getItem("apiwatch_theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
