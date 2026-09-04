@@ -71,7 +71,15 @@ export function MonitorCard({ monitor }: { monitor: Monitor }) {
         aria-label={`View ${monitor.name} details`}
       />
 
-      <div className="relative flex items-start justify-between gap-2">
+      {/* Not `relative` -- that would promote this row into the same
+          positioned/z-index:auto stacking layer as the absolute overlay
+          button above, and (being later in the DOM) paint over it, silently
+          blocking clicks on the name/status text from reaching the button.
+          Staying a plain static element keeps it *behind* the overlay, so
+          clicks here fall through to "View details" like the rest of the
+          card; the dropdown menu below opts back in with its own
+          `relative z-10` since it needs its own click target. */}
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <StatusIndicator status={monitor.status} />
           <h3 className="mt-1 truncate text-sm font-semibold text-text">{monitor.name}</h3>
