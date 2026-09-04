@@ -113,4 +113,52 @@ describe("Settings", () => {
     expect(within(row).getByText("Email")).toBeInTheDocument();
     expect(within(row).getByText("j••••@example.com")).toBeInTheDocument();
   });
+
+  it("shows the public status page link and copies it to the clipboard", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("/api/account/status-page")) {
+          return Promise.resolve(jsonResponse({ slug: "abc123xyz" }));
+        }
+        return Promise.resolve(jsonResponse([]));
+      }),
+    );
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    renderWithProviders(<Settings />);
+    // userEvent.setup() installs its own clipboard emulation on
+    // navigator.clipboard -- define our mock after it, or setup() clobbers it.
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    expect(await screen.findByText(/\/status\/abc123xyz/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Copy Link" }));
+    await vi.waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("/status/abc123xyz"));
+    });
+  });
+
+  it("regenerates the status page link after confirming", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("/api/account/status-page/regenerate")) {
+          return Promise.resolve(jsonResponse({ slug: "new-slug-999" }));
+        }
+        if (String(url).includes("/api/account/status-page")) {
+          return Promise.resolve(jsonResponse({ slug: "abc123xyz" }));
+        }
+        return Promise.resolve(jsonResponse([]));
+      }),
+    );
+
+    renderWithProviders(<Settings />);
+    const user = userEvent.setup();
+
+    await screen.findByText(/\/status\/abc123xyz/);
+    await user.click(screen.getByRole("button", { name: "Regenerate Link" }));
+    await user.click(screen.getByRole("button", { name: "Regenerate" }));
+
+    expect(await screen.findByText(/\/status\/new-slug-999/)).toBeInTheDocument();
+  });
 });

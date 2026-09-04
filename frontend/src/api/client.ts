@@ -77,3 +77,30 @@ export const apiClient = {
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
+
+/** For the public status page only -- deliberately bypasses request()'s
+ * access-key/session headers and 401 handling, since that endpoint needs
+ * neither and isn't gated by either. A viewer with no key/login at all
+ * (the whole point of this page) must still be able to call it. */
+export async function publicGet<T>(path: string): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`);
+  } catch {
+    throw new ApiError(0, "NETWORK_ERROR", "Unable to reach the server. Please check your connection.");
+  }
+
+  const text = await response.text();
+  const data: unknown = text ? JSON.parse(text) : undefined;
+
+  if (!response.ok) {
+    const body = data as ApiErrorBody | undefined;
+    throw new ApiError(
+      response.status,
+      body?.error?.code ?? "UNKNOWN_ERROR",
+      body?.error?.message ?? "Something went wrong.",
+    );
+  }
+
+  return data as T;
+}

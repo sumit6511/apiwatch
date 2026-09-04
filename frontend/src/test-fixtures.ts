@@ -12,6 +12,7 @@ export function makeMonitor(overrides: Partial<Monitor> = {}): Monitor {
     timeout_seconds: 10,
     expected_status_codes: [200],
     notification_channel_ids: [],
+    is_public: false,
     is_active: true,
     status: "UP",
     http_status: 200,

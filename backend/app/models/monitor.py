@@ -23,6 +23,10 @@ class MonitorDocument(BaseModel):
     is_active: bool = True
     current_status: MonitorStatus = MonitorStatus.UNKNOWN
 
+    # Opt-in visibility on the owner's public status page. Only the name and
+    # status/uptime are ever shown there -- never the URL, headers, or body.
+    is_public: bool = False
+
     # Consecutive counters used by the threshold state machine (reset on transition).
     consecutive_failures: int = 0
     consecutive_successes: int = 0

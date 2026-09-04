@@ -53,6 +53,7 @@ export function MonitorForm({ mode }: { mode: "create" | "edit" }) {
   const [timeoutSeconds, setTimeoutSeconds] = useState(10);
   const [statusCodesText, setStatusCodesText] = useState("200");
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
+  const [isPublic, setIsPublic] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const [testResult, setTestResult] = useState<ManualCheckResult | null>(null);
@@ -74,6 +75,7 @@ export function MonitorForm({ mode }: { mode: "create" | "edit" }) {
     setTimeoutSeconds(monitor.timeout_seconds);
     setStatusCodesText(monitor.expected_status_codes.join(", "));
     setSelectedChannels(monitor.notification_channel_ids);
+    setIsPublic(monitor.is_public);
   }, [mode, existing.data]);
 
   function parseBody(): Record<string, unknown> | string | null {
@@ -108,6 +110,7 @@ export function MonitorForm({ mode }: { mode: "create" | "edit" }) {
       timeout_seconds: timeoutSeconds,
       expected_status_codes: parseStatusCodes(),
       notification_channel_ids: selectedChannels,
+      is_public: isPublic,
     };
   }
 
@@ -371,6 +374,25 @@ export function MonitorForm({ mode }: { mode: "create" | "edit" }) {
               .
             </p>
           )}
+        </section>
+
+        <section className="card-base flex flex-col gap-3 p-5">
+          <h2 className="section-title">Visibility</h2>
+          <label className="flex items-start gap-2.5 text-sm text-text">
+            <input
+              type="checkbox"
+              checked={isPublic}
+              onChange={(e) => setIsPublic(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-edge accent-[var(--aw-accent)]"
+            />
+            <span>
+              Show on public status page
+              <span className="block text-xs text-muted">
+                Adds this monitor's name and status/uptime to your account's public status page. The
+                target URL is never shown there.
+              </span>
+            </span>
+          </label>
         </section>
 
         <TestRequestPanel

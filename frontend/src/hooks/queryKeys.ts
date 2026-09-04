@@ -10,6 +10,8 @@ export const queryKeys = {
   incidents: ["incidents"] as const,
   notifications: ["notifications"] as const,
   dashboardSummary: ["dashboard", "summary"] as const,
+  statusPageSlug: ["account", "status-page"] as const,
+  publicStatusPage: (slug: string) => ["public-status-page", slug] as const,
 };
 
 export const REFRESH_INTERVAL_MS = (() => {

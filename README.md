@@ -54,6 +54,7 @@ You give APIWatch a URL, an HTTP method, an interval, and what a "healthy" respo
 - Multi-user accounts (email/password) — every account's monitors, checks, incidents, and notification channels are private to it
 - Per-account monitor-creation limits (total cap + cooldown) to prevent abuse
 - Discord, Telegram, and Email notification channels behind one shared `NotificationProvider` interface
+- Public, unauthenticated status page per account (`/status/<slug>`) for opted-in monitors — name and status/uptime only, never the target URL
 
 ## Architecture
 
@@ -195,6 +196,12 @@ Since signup only requires knowing the deployment access key (not an invite tied
 - **`MONITOR_CREATE_COOLDOWN_SECONDS`** (default 10) — minimum gap between creates for the same account, same in-memory last-timestamp pattern as the existing manual-check throttle (`CheckService`). Slows down scripted burst creation specifically.
 
 Both surface as a normal `AppError` (`MONITOR_LIMIT_EXCEEDED` / `RATE_LIMITED`) that the create-monitor form already displays via its existing error-message handling — no special-casing needed on the frontend.
+
+### Public status pages
+
+Each account has one status page at `/status/<slug>` — a third, unauthenticated route (`app/api/status_page.py`) that sits outside both gates above entirely, registered in `main.py` with no `dependencies=` at all (the same pattern as `/api/health`). Its access control is the slug itself: a `secrets.token_urlsafe(9)` value (~72 bits of entropy) generated lazily on first request (`GET /api/account/status-page`, behind the normal two-gate auth) rather than at signup, since most accounts never use it, and resolved server-side to exactly one account — never taken from anywhere but that lookup.
+
+A monitor only appears there if its owner explicitly checks "Show on public status page" (`is_public`, off by default) *and* it's active — a paused monitor is dropped from the public list rather than shown mid-outage-forever. The response (`PublicStatusPage`/`PublicMonitorStatus`, `app/schemas/status_page.py`) is deliberately a narrow, separate shape from the authenticated `MonitorOut`: name, status, 24h/7d/30d uptime, and a short recent-checks sparkline — never the target URL, headers, body, or notification config, even to someone who has the link. `POST /api/account/status-page/regenerate` issues a new slug and immediately invalidates the old one (Settings page, "Regenerate Link") for when a link leaks somewhere it shouldn't have.
 
 ## Tech Stack
 
@@ -377,7 +384,7 @@ Pulling the scheduler out into its own worker process (talking to the same Mongo
 
 ## Testing
 
-**Backend** (`cd backend && pytest`) — 101 tests against a real MongoDB Atlas database (`apiwatch_test`, separate from the dev database, wiped between tests), with outbound HTTP mocked via `respx`:
+**Backend** (`cd backend && pytest`) — 115 tests against a real MongoDB Atlas database (`apiwatch_test`, separate from the dev database, wiped between tests), with outbound HTTP mocked via `respx`:
 
 - URL validator: valid/invalid schemes, localhost, loopback, private ranges (v4 + v6), the cloud metadata address, IPv4-mapped IPv6
 - Monitor CRUD, pause/resume, and scheduler job lifecycle (including the pause/resume-while-down regression test)
@@ -389,8 +396,9 @@ Pulling the scheduler out into its own worker process (talking to the same Mongo
 - Auth: signup hashes the password (never stores plaintext), duplicate email rejected, wrong-password and unknown-email login both rejected identically, JWT round-trip, expired/malformed/mis-signed tokens rejected
 - Ownership isolation: a monitor/notification channel created by one account is a 404 (not a 403 that would leak existence) to another account on every read/write path, `list_all`/dashboard-summary/all-incidents scoped per caller, and a monitor can't reference another account's notification channel
 - Monitor-creation abuse guards: rejected once the per-account cap is reached, throttled by the per-account cooldown, both scoped so one account never blocks another
+- Public status pages: slug assignment is idempotent and regeneration invalidates the old link, an unknown slug 404s, only monitors marked public *and* active appear, another account's public monitors never leak in, overall status is the worst of all shown monitors, uptime/recent-checks are computed correctly, and the target URL never appears anywhere in the public response shape
 
-**Frontend** (`cd frontend && npm run test`) — 31 tests, Vitest + React Testing Library, focused on behavior: status badges always render text (not color alone), form validation (including a real bug this caught — `Number("")` evaluating to `0` in JS, which silently turned a cleared "expected status codes" field into `[0]` instead of `[]`), monitor card actions, incident card states, check history rendering, the access-key and login gates (including that a locked-out account sees the right lock screen when the *other* gate is what actually failed, and that the public landing page — not a bare key form — is what a first-time stranger sees), and the Settings page's per-type notification form (right fields shown per channel type, right payload shape submitted, no credential ever rendered into the DOM).
+**Frontend** (`cd frontend && npm run test`) — 38 tests, Vitest + React Testing Library, focused on behavior: status badges always render text (not color alone), form validation (including a real bug this caught — `Number("")` evaluating to `0` in JS, which silently turned a cleared "expected status codes" field into `[0]` instead of `[]`), monitor card actions, incident card states, check history rendering, the access-key and login gates (including that a locked-out account sees the right lock screen when the *other* gate is what actually failed, and that the public landing page — not a bare key form — is what a first-time stranger sees), the Settings page's per-type notification form (right fields shown per channel type, right payload shape submitted, no credential ever rendered into the DOM), the public status page (overall status banner, per-monitor status, not-found state, and that a target URL never renders), and the Settings status-page section (link display, copy-to-clipboard, regenerate-with-confirmation).
 
 Both suites, `npm run build` (strict TypeScript), and `docker compose up --build` were run as part of building this project, and the full app was driven end-to-end in a real headless browser: creating monitors against live public endpoints, verifying UP/DOWN classification and response times, incident open/resolve, SSRF rejection surfaced in the UI, pause/resume, manual-check throttling, the mobile drawer/responsive layout; two separate accounts in two isolated browser contexts confirming account B's dashboard never shows account A's monitor and that navigating directly to account A's monitor URL as account B renders the same "not found" state as a genuinely deleted monitor; and adding a real Discord, Telegram, and Email channel through the Settings UI, confirming each shows the right type-specific fields, the right masked summary, no credential ever rendered into the page, and a clear "not configured" error when testing Email without Resend set up.
 
@@ -398,7 +406,6 @@ Both suites, `npm run build` (strict TypeScript), and `docker compose up --build
 
 - Pull the scheduler into a dedicated worker process (see [Scheduler Architecture](#scheduler-architecture)) to allow horizontal API scaling
 - Further notification providers (Slack, Microsoft Teams, generic webhook) behind the existing `NotificationProvider` interface — Discord, Telegram, and Email already implemented
-- Public status pages per monitor or monitor group
 - Multi-region checks
 - Password reset and email verification (signup is currently invite-only via the deployment access key, with no email-ownership check)
 - OAuth (GitHub/Google) as an alternative to email/password

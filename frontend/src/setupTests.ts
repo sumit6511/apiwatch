@@ -24,3 +24,14 @@ if (typeof window !== "undefined" && !window.localStorage) {
   };
   Object.defineProperty(window, "localStorage", { value: memoryStorage, configurable: true });
 }
+
+// jsdom doesn't implement HTMLDialogElement.showModal()/close() (throws
+// "not a function"), unlike a real browser -- needed by ConfirmDialog.
+if (typeof HTMLDialogElement !== "undefined" && !HTMLDialogElement.prototype.showModal) {
+  HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close = function (this: HTMLDialogElement) {
+    this.removeAttribute("open");
+  };
+}

@@ -9,6 +9,7 @@ from app.services.incident_service import IncidentService
 from app.services.metrics_service import MetricsService
 from app.services.monitor_service import MonitorService
 from app.services.notification_service import NotificationService
+from app.services.status_page_service import StatusPageService
 
 
 def get_monitor_service(request: Request) -> MonitorService:
@@ -33,6 +34,10 @@ def get_notification_service(request: Request) -> NotificationService:
 
 def get_auth_service(request: Request) -> AuthService:
     return request.app.state.auth_service
+
+
+def get_status_page_service(request: Request) -> StatusPageService:
+    return request.app.state.status_page_service
 
 
 async def get_current_user_id(x_user_token: str | None = Header(default=None)) -> str:

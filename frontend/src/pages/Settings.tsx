@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Bell, Mail, MessageSquare, Plus, Send, Trash2 } from "lucide-react";
+import { Bell, Copy, Globe, Mail, MessageSquare, Plus, RefreshCw, Send, Trash2 } from "lucide-react";
 
 import {
   useNotifications,
@@ -8,6 +8,7 @@ import {
   useDeleteNotification,
   useTestNotification,
 } from "../hooks/useNotifications";
+import { useStatusPageSlug, useRegenerateStatusPageSlug } from "../hooks/useAccount";
 import { useToast } from "../components/common/Toast";
 import { ApiError } from "../api/client";
 import { Spinner } from "../components/common/Spinner";
@@ -35,6 +36,9 @@ export function Settings() {
   const deleteNotification = useDeleteNotification();
   const updateNotification = useUpdateNotification();
   const testNotification = useTestNotification();
+  const statusPageQuery = useStatusPageSlug();
+  const regenerateSlug = useRegenerateStatusPageSlug();
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
 
   const [type, setType] = useState<NotificationType>("discord");
   const [name, setName] = useState("");
@@ -105,6 +109,31 @@ export function Settings() {
       showToast("error", "Unable to remove notification channel.");
     } finally {
       setPendingDeleteId(null);
+    }
+  }
+
+  function statusPageUrl(slug: string): string {
+    return `${window.location.origin}/status/${slug}`;
+  }
+
+  async function handleCopyStatusPageLink() {
+    if (!statusPageQuery.data) return;
+    try {
+      await navigator.clipboard.writeText(statusPageUrl(statusPageQuery.data.slug));
+      showToast("success", "Link copied to clipboard");
+    } catch {
+      showToast("error", "Unable to copy link");
+    }
+  }
+
+  async function handleRegenerate() {
+    try {
+      await regenerateSlug.mutateAsync();
+      showToast("success", "New status page link generated -- the old link no longer works");
+    } catch {
+      showToast("error", "Unable to generate a new link.");
+    } finally {
+      setConfirmRegenerate(false);
     }
   }
 
@@ -318,6 +347,55 @@ export function Settings() {
         )}
       </section>
 
+      <section className="card-base p-5">
+        <h2 className="section-title mb-1">Public Status Page</h2>
+        <p className="mb-4 text-sm text-muted">
+          Anyone with this link can see the name and status/uptime of monitors you've marked "Show on
+          public status page" -- no access key or account required. The target URL is never shown there.
+          Mark a monitor public from its edit page.
+        </p>
+
+        {statusPageQuery.isLoading && <Spinner label="Loading…" />}
+
+        {statusPageQuery.isError && (
+          <ErrorState
+            description="Unable to load your status page link."
+            onRetry={() => void statusPageQuery.refetch()}
+          />
+        )}
+
+        {statusPageQuery.data && (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 rounded-lg border border-edge px-3 py-2.5">
+              <Globe size={15} className="shrink-0 text-muted" />
+              <a
+                href={`/status/${statusPageQuery.data.slug}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mono-value truncate text-sm text-accent hover:underline"
+              >
+                {statusPageUrl(statusPageQuery.data.slug)}
+              </a>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" className="btn-secondary text-xs" onClick={() => void handleCopyStatusPageLink()}>
+                <Copy size={13} />
+                Copy Link
+              </button>
+              <button
+                type="button"
+                className="btn-secondary text-xs"
+                onClick={() => setConfirmRegenerate(true)}
+                disabled={regenerateSlug.isPending}
+              >
+                {regenerateSlug.isPending ? <Spinner /> : <RefreshCw size={13} />}
+                Regenerate Link
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
       <ConfirmDialog
         open={pendingDeleteId !== null}
         title="Remove notification channel?"
@@ -327,6 +405,17 @@ export function Settings() {
         busy={deleteNotification.isPending}
         onConfirm={() => void handleDelete()}
         onCancel={() => setPendingDeleteId(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmRegenerate}
+        title="Regenerate status page link?"
+        description="The current link will stop working immediately. Anyone you've shared it with will need the new one."
+        confirmLabel="Regenerate"
+        danger
+        busy={regenerateSlug.isPending}
+        onConfirm={() => void handleRegenerate()}
+        onCancel={() => setConfirmRegenerate(false)}
       />
     </div>
   );

@@ -6,6 +6,7 @@ import { Dashboard } from "../pages/Dashboard";
 import { Incidents } from "../pages/Incidents";
 import { Settings } from "../pages/Settings";
 import { NotFound } from "../pages/NotFound";
+import { PublicStatus } from "../pages/PublicStatus";
 import { Spinner } from "../components/common/Spinner";
 
 // MonitorDetails pulls in Recharts, the single heaviest dependency in the
@@ -29,6 +30,10 @@ function lazyPage(node: React.ReactNode) {
 }
 
 const router = createBrowserRouter([
+  // Public, unauthenticated -- outside AppShell (no sidebar/topbar chrome)
+  // and, per main.tsx, outside AccessGate/AuthGate entirely. Sharing this
+  // link must not require the deployment access key or an account.
+  { path: "/status/:slug", element: <PublicStatus /> },
   {
     element: <AppShell />,
     errorElement: <NotFound />,

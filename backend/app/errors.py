@@ -88,6 +88,11 @@ class InvalidSessionError(AppError):
         super().__init__("INVALID_SESSION", message, status.HTTP_401_UNAUTHORIZED)
 
 
+class StatusPageNotFoundError(AppError):
+    def __init__(self, message: str = "Status page not found."):
+        super().__init__("STATUS_PAGE_NOT_FOUND", message, status.HTTP_404_NOT_FOUND)
+
+
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,

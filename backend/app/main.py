@@ -6,8 +6,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import auth as auth_api
-from app.api import checks, health, incidents, monitors, notifications
+from app.api import account, auth as auth_api
+from app.api import checks, health, incidents, monitors, notifications, status_page
 from app.auth import require_access_key
 from app.config import get_settings
 from app.db.client import close_mongo_connection, connect_to_mongo, get_database
@@ -27,6 +27,7 @@ from app.services.incident_service import IncidentService
 from app.services.metrics_service import MetricsService
 from app.services.monitor_service import MonitorService
 from app.services.notification_service import NotificationService
+from app.services.status_page_service import StatusPageService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("apiwatch")
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI):
         monitor_repo, check_repo, incident_repo, notification_repo, scheduler, checker
     )
     auth_service = AuthService(user_repo)
+    status_page_service = StatusPageService(user_repo, monitor_repo, check_repo)
 
     app.state.monitor_service = monitor_service
     app.state.check_service = check_service
@@ -67,6 +69,7 @@ async def lifespan(app: FastAPI):
     app.state.metrics_service = metrics_service
     app.state.notification_service = notification_service
     app.state.auth_service = auth_service
+    app.state.status_page_service = status_page_service
     app.state.scheduler = scheduler if settings.enable_scheduler else None
 
     # 3-5. Load active monitors, register their jobs, start the scheduler.
@@ -135,6 +138,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 # /api/health is intentionally unauthenticated -- Render/uptime pingers hit
 # it without an Authorization header, and it doesn't expose sensitive data.
+# /api/public/status/{slug} is unauthenticated for the same reason a status
+# page has to be: it's meant to be shared with people who have neither the
+# deployment access key nor an account. Its own access control is the slug
+# (unguessable, resolved server-side to exactly one account's opted-in
+# monitors) rather than either gate below.
 #
 # Everything else sits behind the shared access key (require_access_key, a
 # deployment-wide gate -- who's even allowed to talk to this API at all,
@@ -145,9 +153,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 _access_key_only = [Depends(require_access_key)]
 _protected = [Depends(require_access_key), Depends(get_current_user_id)]
 app.include_router(health.router)
+app.include_router(status_page.router)
 app.include_router(auth_api.router, dependencies=_access_key_only)
 app.include_router(monitors.router, dependencies=_protected)
 app.include_router(checks.router, dependencies=_protected)
 app.include_router(checks.dashboard_router, dependencies=_protected)
 app.include_router(incidents.router, dependencies=_protected)
 app.include_router(notifications.router, dependencies=_protected)
+app.include_router(account.router, dependencies=_protected)

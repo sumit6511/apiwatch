@@ -21,6 +21,7 @@ export interface Monitor {
   timeout_seconds: number;
   expected_status_codes: number[];
   notification_channel_ids: string[];
+  is_public: boolean;
   is_active: boolean;
   status: MonitorStatus;
   http_status: number | null;
@@ -45,6 +46,7 @@ export interface MonitorCreateInput {
   timeout_seconds: number;
   expected_status_codes: number[];
   notification_channel_ids: string[];
+  is_public: boolean;
 }
 
 export type MonitorUpdateInput = Partial<MonitorCreateInput>;
@@ -159,4 +161,32 @@ export interface User {
 export interface TokenResponse {
   token: string;
   user: User;
+}
+
+export interface PublicCheckPoint {
+  timestamp: string;
+  status: MonitorStatus;
+  response_time_ms: number;
+}
+
+/** Deliberately excludes the target URL, headers, and body -- a public
+ * status page only ever shows the owner-chosen name and status/uptime. */
+export interface PublicMonitorStatus {
+  name: string;
+  status: MonitorStatus;
+  uptime_24h: number | null;
+  uptime_7d: number | null;
+  uptime_30d: number | null;
+  last_checked_at: string | null;
+  recent_checks: PublicCheckPoint[];
+}
+
+export interface PublicStatusPage {
+  overall_status: MonitorStatus;
+  monitors: PublicMonitorStatus[];
+  generated_at: string;
+}
+
+export interface StatusPageSlug {
+  slug: string;
 }

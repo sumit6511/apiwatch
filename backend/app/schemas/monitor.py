@@ -52,6 +52,7 @@ class MonitorBase(BaseModel):
     timeout_seconds: int = Field(default=10, ge=MIN_TIMEOUT_SECONDS, le=MAX_TIMEOUT_SECONDS)
     expected_status_codes: list[int] = Field(default_factory=lambda: [200])
     notification_channel_ids: list[str] = Field(default_factory=list)
+    is_public: bool = False
 
     @field_validator("url")
     @classmethod
@@ -136,6 +137,7 @@ class MonitorUpdate(BaseModel):
     timeout_seconds: int | None = Field(default=None, ge=MIN_TIMEOUT_SECONDS, le=MAX_TIMEOUT_SECONDS)
     expected_status_codes: list[int] | None = None
     notification_channel_ids: list[str] | None = None
+    is_public: bool | None = None
 
     @field_validator("expected_status_codes")
     @classmethod
@@ -180,6 +182,7 @@ class MonitorOut(BaseModel):
     timeout_seconds: int
     expected_status_codes: list[int]
     notification_channel_ids: list[str]
+    is_public: bool
 
     is_active: bool
     status: MonitorStatus

@@ -10,6 +10,7 @@ async def ensure_indexes(db: AsyncDatabase) -> None:
     await db.monitors.create_index("is_active")
     await db.monitors.create_index("created_at")
     await db.monitors.create_index("owner_id")
+    await db.monitors.create_index([("owner_id", 1), ("is_public", 1)])
 
     await db.checks.create_index([("monitor_id", 1), ("checked_at", -1)])
     await db.checks.create_index([("owner_id", 1), ("checked_at", -1)])
@@ -22,5 +23,8 @@ async def ensure_indexes(db: AsyncDatabase) -> None:
     await db.notification_channels.create_index("owner_id")
 
     await db.users.create_index("email", unique=True)
+    # sparse: most accounts never generate a public_slug (assigned lazily,
+    # not at signup), so most user docs simply lack this field.
+    await db.users.create_index("public_slug", unique=True, sparse=True)
 
     logger.info("mongodb_indexes_ready")

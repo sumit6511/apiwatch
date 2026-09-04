@@ -37,6 +37,18 @@ class MonitorRepository:
         cursor = self._collection.find(query).sort("created_at", -1)
         return [doc async for doc in cursor]
 
+    async def list_public_for_owner(self, owner_id: str) -> list[dict[str, Any]]:
+        """Unrestricted by request context on purpose -- backs the public,
+        unauthenticated status-page endpoint. Safe because it's still scoped
+        to one owner_id (resolved server-side from an unguessable slug, not
+        client input) and filtered to monitors that owner explicitly marked
+        public. Paused monitors are excluded: there's nothing meaningful to
+        report for a monitor that isn't being checked."""
+        cursor = self._collection.find(
+            {"owner_id": ObjectId(owner_id), "is_public": True, "is_active": True}
+        ).sort("name", 1)
+        return [doc async for doc in cursor]
+
     async def list_active_for_scheduler(self) -> list[dict[str, Any]]:
         """Unrestricted, across every account -- the scheduler registers a
         job per active monitor system-wide at startup, not per user. See
