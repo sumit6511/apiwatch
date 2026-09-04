@@ -1,9 +1,18 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
 
+import type { RealtimeStatus } from "../../hooks/useRealtimeUpdates";
 import { SidebarContent } from "./Sidebar";
 
-export function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function MobileDrawer({
+  open,
+  onClose,
+  realtimeStatus,
+}: {
+  open: boolean;
+  onClose: () => void;
+  realtimeStatus: RealtimeStatus;
+}) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -36,7 +45,7 @@ export function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => 
         >
           <X size={18} />
         </button>
-        <SidebarContent onNavigate={onClose} />
+        <SidebarContent onNavigate={onClose} realtimeStatus={realtimeStatus} />
       </div>
     </div>
   );

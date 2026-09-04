@@ -1,7 +1,8 @@
 import jwt
-from fastapi import Header, Request
+from fastapi import Header, Request, WebSocket
 
 from app.errors import InvalidSessionError
+from app.realtime import ConnectionManager
 from app.security import decode_user_token
 from app.services.auth_service import AuthService
 from app.services.check_service import CheckService
@@ -38,6 +39,10 @@ def get_auth_service(request: Request) -> AuthService:
 
 def get_status_page_service(request: Request) -> StatusPageService:
     return request.app.state.status_page_service
+
+
+def get_connection_manager(websocket: WebSocket) -> ConnectionManager:
+    return websocket.app.state.connection_manager
 
 
 async def get_current_user_id(x_user_token: str | None = Header(default=None)) -> str:

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import account, auth as auth_api
-from app.api import checks, health, incidents, monitors, notifications, status_page
+from app.api import checks, health, incidents, monitors, notifications, realtime, status_page
 from app.auth import require_access_key
 from app.config import get_settings
 from app.db.client import close_mongo_connection, connect_to_mongo, get_database
@@ -21,6 +21,7 @@ from app.dependencies import get_current_user_id
 from app.errors import AppError, app_error_handler
 from app.monitoring.checker import MonitorChecker
 from app.monitoring.scheduler import SchedulerManager
+from app.realtime import ConnectionManager
 from app.services.auth_service import AuthService
 from app.services.check_service import CheckService
 from app.services.incident_service import IncidentService
@@ -50,7 +51,10 @@ async def lifespan(app: FastAPI):
 
     incident_service = IncidentService(incident_repo)
     notification_service = NotificationService(notification_repo)
-    checker = MonitorChecker(check_repo, monitor_repo, incident_service, notification_service)
+    connection_manager = ConnectionManager()
+    checker = MonitorChecker(
+        check_repo, monitor_repo, incident_service, notification_service, connection_manager
+    )
 
     scheduler = SchedulerManager(checker, monitor_repo)
     check_service = CheckService(
@@ -70,6 +74,7 @@ async def lifespan(app: FastAPI):
     app.state.notification_service = notification_service
     app.state.auth_service = auth_service
     app.state.status_page_service = status_page_service
+    app.state.connection_manager = connection_manager
     app.state.scheduler = scheduler if settings.enable_scheduler else None
 
     # 3-5. Load active monitors, register their jobs, start the scheduler.
@@ -144,6 +149,15 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # (unguessable, resolved server-side to exactly one account's opted-in
 # monitors) rather than either gate below.
 #
+# /ws/updates is also registered with no dependencies here, but for a
+# different reason: a browser's native WebSocket API can't set the
+# Authorization/X-User-Token headers require_access_key/get_current_user_id
+# depend on, so router-level Depends() can't gate the handshake the way it
+# gates every HTTP route. That socket authenticates itself in-band instead
+# (see app/api/realtime.py) -- the first message must carry both
+# credentials, or the connection is closed before it's registered to
+# receive anything.
+#
 # Everything else sits behind the shared access key (require_access_key, a
 # deployment-wide gate -- who's even allowed to talk to this API at all,
 # when API_ACCESS_KEY is set). /api/auth/* stops there: you can't require a
@@ -154,6 +168,7 @@ _access_key_only = [Depends(require_access_key)]
 _protected = [Depends(require_access_key), Depends(get_current_user_id)]
 app.include_router(health.router)
 app.include_router(status_page.router)
+app.include_router(realtime.router)
 app.include_router(auth_api.router, dependencies=_access_key_only)
 app.include_router(monitors.router, dependencies=_protected)
 app.include_router(checks.router, dependencies=_protected)

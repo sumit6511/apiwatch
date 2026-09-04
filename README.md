@@ -27,6 +27,7 @@ APIWatch is a lightweight API and website monitoring platform. Add the endpoints
 - [API Documentation](#api-documentation)
 - [Deployment](#deployment)
 - [Scheduler Architecture](#scheduler-architecture)
+- [Real-Time Updates](#real-time-updates)
 - [Testing](#testing)
 - [Future Improvements](#future-improvements)
 - [License](#license)
@@ -55,6 +56,7 @@ You give APIWatch a URL, an HTTP method, an interval, and what a "healthy" respo
 - Per-account monitor-creation limits (total cap + cooldown) to prevent abuse
 - Discord, Telegram, and Email notification channels behind one shared `NotificationProvider` interface
 - Public, unauthenticated status page per account (`/status/<slug>`) for opted-in monitors — name and status/uptime only, never the target URL
+- Real-time dashboard updates over WebSocket the instant a check completes, with polling kept as an automatic fallback
 
 ## Architecture
 
@@ -382,9 +384,17 @@ APScheduler runs **inside the FastAPI process**, with an in-memory job store, on
 
 Pulling the scheduler out into its own worker process (talking to the same MongoDB, with the API layer becoming pure CRUD) would let the API scale freely while keeping exactly one scheduler. Not implemented here — it's more machinery than a v1 needs.
 
+## Real-Time Updates
+
+The dashboard polls every `VITE_MONITOR_REFRESH_SECONDS` (default 30s) regardless — that stays as a correctness floor. On top of it, `WS /ws/updates` pushes a `monitor_updated` event the instant `MonitorChecker.run_check()` finishes (scheduled, manual, or the initial check on create/resume), so a status change usually shows up in well under a second instead of up to 30s late. The event carries just `{type, monitor_id}` — no duplicated payload to keep in sync with `MonitorOut` — and the frontend (`useRealtimeUpdates`) responds by invalidating the same React Query keys a poll would touch (`monitors`, `incidents`, `dashboard`) and letting the existing fetch paths pull fresh data. If the socket drops, `useRealtimeUpdates` reconnects on a fixed delay and the 30s poll keeps things eventually-consistent in the meantime — losing the socket degrades to "the app before this feature existed," never to "stuck."
+
+**Why the socket authenticates itself, not the router.** Every other backend router is gated by `Depends(require_access_key)`/`Depends(get_current_user_id)`, reading the `Authorization`/`X-User-Token` headers. A browser's native `WebSocket` API can't set custom headers on the handshake request, so `/ws/updates` is registered with no router-level dependencies (`app/main.py`) and instead requires the first message *after* connecting to carry `{access_key, user_token}` (`app/api/realtime.py`) — validated by hand, connection closed with code `4401` if either is wrong, before it's ever registered to receive anything.
+
+**`ConnectionManager` (`app/realtime.py`)** is an in-memory, per-account registry of live sockets — the same single-process assumption the embedded scheduler already makes (see above): fine at this app's scale, and a connection registered on one instance is invisible to a broadcast from another. Multiple backend replicas would need a shared pub/sub layer (e.g. Redis) for this to reach every connected client; not implemented here for the same reason the scheduler isn't distributed.
+
 ## Testing
 
-**Backend** (`cd backend && pytest`) — 115 tests against a real MongoDB Atlas database (`apiwatch_test`, separate from the dev database, wiped between tests), with outbound HTTP mocked via `respx`:
+**Backend** (`cd backend && pytest`) — 128 tests against a real MongoDB Atlas database (`apiwatch_test`, separate from the dev database, wiped between tests), with outbound HTTP mocked via `respx`:
 
 - URL validator: valid/invalid schemes, localhost, loopback, private ranges (v4 + v6), the cloud metadata address, IPv4-mapped IPv6
 - Monitor CRUD, pause/resume, and scheduler job lifecycle (including the pause/resume-while-down regression test)
@@ -397,8 +407,9 @@ Pulling the scheduler out into its own worker process (talking to the same Mongo
 - Ownership isolation: a monitor/notification channel created by one account is a 404 (not a 403 that would leak existence) to another account on every read/write path, `list_all`/dashboard-summary/all-incidents scoped per caller, and a monitor can't reference another account's notification channel
 - Monitor-creation abuse guards: rejected once the per-account cap is reached, throttled by the per-account cooldown, both scoped so one account never blocks another
 - Public status pages: slug assignment is idempotent and regeneration invalidates the old link, an unknown slug 404s, only monitors marked public *and* active appear, another account's public monitors never leak in, overall status is the worst of all shown monitors, uptime/recent-checks are computed correctly, and the target URL never appears anywhere in the public response shape
+- Real-time updates: `ConnectionManager.broadcast` reaches only the target owner's connections (never another account's) and drops a dead connection after a failed send without disturbing the others; `MonitorChecker.run_check` broadcasts on completion (and is a no-op with no connection manager wired up, so every pre-existing test constructing a `MonitorChecker` directly keeps working unchanged); the `/ws/updates` handshake closes the connection on a wrong access key, an invalid/malformed user token, or a malformed first message, and registers/unregisters cleanly on a valid one
 
-**Frontend** (`cd frontend && npm run test`) — 38 tests, Vitest + React Testing Library, focused on behavior: status badges always render text (not color alone), form validation (including a real bug this caught — `Number("")` evaluating to `0` in JS, which silently turned a cleared "expected status codes" field into `[0]` instead of `[]`), monitor card actions, incident card states, check history rendering, the access-key and login gates (including that a locked-out account sees the right lock screen when the *other* gate is what actually failed, and that the public landing page — not a bare key form — is what a first-time stranger sees), the Settings page's per-type notification form (right fields shown per channel type, right payload shape submitted, no credential ever rendered into the DOM), the public status page (overall status banner, per-monitor status, not-found state, and that a target URL never renders), and the Settings status-page section (link display, copy-to-clipboard, regenerate-with-confirmation).
+**Frontend** (`cd frontend && npm run test`) — 43 tests, Vitest + React Testing Library, focused on behavior: status badges always render text (not color alone), form validation (including a real bug this caught — `Number("")` evaluating to `0` in JS, which silently turned a cleared "expected status codes" field into `[0]` instead of `[]`), monitor card actions, incident card states, check history rendering, the access-key and login gates (including that a locked-out account sees the right lock screen when the *other* gate is what actually failed, and that the public landing page — not a bare key form — is what a first-time stranger sees), the Settings page's per-type notification form (right fields shown per channel type, right payload shape submitted, no credential ever rendered into the DOM), the public status page (overall status banner, per-monitor status, not-found state, and that a target URL never renders), the Settings status-page section (link display, copy-to-clipboard, regenerate-with-confirmation), and `useRealtimeUpdates` (sends stored credentials on connect, invalidates exactly the right query keys on a `monitor_updated` message and nothing else, ignores an unparseable message instead of throwing, reconnects after a drop, and doesn't reconnect after unmount).
 
 Both suites, `npm run build` (strict TypeScript), and `docker compose up --build` were run as part of building this project, and the full app was driven end-to-end in a real headless browser: creating monitors against live public endpoints, verifying UP/DOWN classification and response times, incident open/resolve, SSRF rejection surfaced in the UI, pause/resume, manual-check throttling, the mobile drawer/responsive layout; two separate accounts in two isolated browser contexts confirming account B's dashboard never shows account A's monitor and that navigating directly to account A's monitor URL as account B renders the same "not found" state as a genuinely deleted monitor; and adding a real Discord, Telegram, and Email channel through the Settings UI, confirming each shows the right type-specific fields, the right masked summary, no credential ever rendered into the page, and a clear "not configured" error when testing Email without Resend set up.
 

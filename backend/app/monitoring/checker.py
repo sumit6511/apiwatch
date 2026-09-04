@@ -40,11 +40,16 @@ class RawCheckResult:
 
 
 class MonitorChecker:
-    def __init__(self, check_repo, monitor_repo, incident_service, notification_service):
+    def __init__(
+        self, check_repo, monitor_repo, incident_service, notification_service, connection_manager=None
+    ):
         self._check_repo = check_repo
         self._monitor_repo = monitor_repo
         self._incident_service = incident_service
         self._notification_service = notification_service
+        # Optional: None in tests that construct a MonitorChecker directly
+        # without wiring up realtime push. See app/realtime.py.
+        self._connection_manager = connection_manager
 
     async def perform_request(
         self,
@@ -237,4 +242,13 @@ class MonitorChecker:
             result.http_status,
             result.response_time_ms,
         )
+
+        if self._connection_manager is not None:
+            # One event covers everything this check could have changed
+            # (monitor status/uptime, a new check row, an opened/resolved
+            # incident) -- the frontend just invalidates its caches and lets
+            # its normal fetch paths pull the fresh data, rather than this
+            # message trying to carry a full, separately-maintained payload.
+            await self._connection_manager.broadcast(owner_id, {"type": "monitor_updated", "monitor_id": monitor_id})
+
         return saved_check

@@ -3,6 +3,7 @@ import { Activity, AlertCircle, LayoutGrid, LogOut, Settings as SettingsIcon } f
 import type { ReactNode } from "react";
 
 import { useDashboardSummary } from "../../hooks/useDashboardSummary";
+import type { RealtimeStatus } from "../../hooks/useRealtimeUpdates";
 import { useAuth } from "../common/AuthGate";
 
 const NAV_ITEMS: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
@@ -11,17 +12,45 @@ const NAV_ITEMS: { to: string; label: string; icon: ReactNode; end?: boolean }[]
   { to: "/incidents", label: "Incidents", icon: <AlertCircle size={18} /> },
 ];
 
-export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+const REALTIME_META: Record<RealtimeStatus, { label: string; dotClass: string }> = {
+  connecting: { label: "Connecting…", dotClass: "bg-warning" },
+  connected: { label: "Live", dotClass: "bg-success" },
+  disconnected: { label: "Reconnecting…", dotClass: "bg-danger" },
+};
+
+function RealtimeIndicator({ status }: { status: RealtimeStatus }) {
+  const meta = REALTIME_META[status];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted"
+      title={status === "connected" ? "Live updates connected" : "Live updates unavailable -- falling back to polling"}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${meta.dotClass}`} aria-hidden="true" />
+      {meta.label}
+    </span>
+  );
+}
+
+export function SidebarContent({
+  onNavigate,
+  realtimeStatus,
+}: {
+  onNavigate?: () => void;
+  realtimeStatus: RealtimeStatus;
+}) {
   const { data: summary } = useDashboardSummary();
   const { user, logout } = useAuth();
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 px-5 py-5">
-        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-dim text-accent">
-          <Activity size={16} />
-        </span>
-        <span className="text-base font-semibold tracking-tight text-text">APIWatch</span>
+      <div className="flex items-center justify-between gap-2 px-5 py-5">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-dim text-accent">
+            <Activity size={16} />
+          </span>
+          <span className="text-base font-semibold tracking-tight text-text">APIWatch</span>
+        </div>
+        <RealtimeIndicator status={realtimeStatus} />
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 px-3" aria-label="Primary">
@@ -83,10 +112,10 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ realtimeStatus }: { realtimeStatus: RealtimeStatus }) {
   return (
     <aside className="hidden w-60 shrink-0 border-r border-edge bg-surface md:block">
-      <SidebarContent />
+      <SidebarContent realtimeStatus={realtimeStatus} />
     </aside>
   );
 }
