@@ -22,6 +22,7 @@ export interface Monitor {
   expected_status_codes: number[];
   notification_channel_ids: string[];
   is_public: boolean;
+  tags: string[];
   is_active: boolean;
   status: MonitorStatus;
   http_status: number | null;
@@ -47,6 +48,7 @@ export interface MonitorCreateInput {
   expected_status_codes: number[];
   notification_channel_ids: string[];
   is_public: boolean;
+  tags: string[];
 }
 
 export type MonitorUpdateInput = Partial<MonitorCreateInput>;

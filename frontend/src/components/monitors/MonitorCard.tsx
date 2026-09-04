@@ -70,6 +70,16 @@ export function MonitorCard({ monitor }: { monitor: Monitor }) {
         <span className="mono-value truncate">{monitor.url}</span>
       </div>
 
+      {monitor.tags.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {monitor.tags.map((tag) => (
+            <span key={tag} className="rounded-md bg-surface2 px-1.5 py-0.5 text-[11px] font-medium text-muted">
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="mt-4 flex items-end justify-between">
         <div className="mono-value text-sm text-text">
           {monitor.http_status ?? "—"}

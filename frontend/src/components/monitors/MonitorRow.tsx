@@ -11,8 +11,23 @@ import { formatRelativeTime, formatResponseTimeOrStatus, formatUptime } from "..
 
 /** A denser alternative to MonitorCard for accounts with many monitors --
  * same actions (via the shared useMonitorActions hook so the two views
- * can't drift apart), one line instead of a whole card. */
-export function MonitorRow({ monitor }: { monitor: Monitor }) {
+ * can't drift apart), one line instead of a whole card. Bulk-select
+ * (`selectable`) only exists here, not in the card grid -- retrofitting a
+ * checkbox onto MonitorCard's full-card overlay-button click target would
+ * mean re-deriving the same stacking-order care that button already needed
+ * once (see the comment there), for a feature that fits a dense list
+ * better than a glanceable grid anyway. */
+export function MonitorRow({
+  monitor,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
+}: {
+  monitor: Monitor;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
+}) {
   const navigate = useNavigate();
   const { handlePauseResume, handleRunCheck, handleDelete, confirmDelete, setConfirmDelete, deletePending } =
     useMonitorActions(monitor);
@@ -26,6 +41,18 @@ export function MonitorRow({ monitor }: { monitor: Monitor }) {
         aria-label={`View ${monitor.name} details`}
       />
 
+      {selectable && (
+        <label className="relative z-10 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+          <span className="sr-only">Select {monitor.name}</span>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect?.(monitor.id)}
+            className="h-4 w-4 rounded border-edge accent-[var(--aw-accent)]"
+          />
+        </label>
+      )}
+
       {/* See MonitorCard for why this row of content must stay a plain
           static element rather than `relative` -- it would otherwise paint
           over the overlay button above and swallow clicks meant for it. */}
@@ -35,6 +62,14 @@ export function MonitorRow({ monitor }: { monitor: Monitor }) {
         <div className="flex items-center gap-2">
           <h3 className="truncate text-sm font-semibold text-text">{monitor.name}</h3>
           <MethodBadge method={monitor.method} />
+          {monitor.tags.map((tag) => (
+            <span
+              key={tag}
+              className="hidden shrink-0 rounded-md bg-surface2 px-1.5 py-0.5 text-[11px] font-medium text-muted sm:inline-block"
+            >
+              {tag}
+            </span>
+          ))}
         </div>
         <div className="mono-value truncate text-xs text-muted">{monitor.url}</div>
       </div>

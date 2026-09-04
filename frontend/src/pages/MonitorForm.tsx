@@ -13,6 +13,7 @@ import {
   rowsToHeaders,
   type HeaderRow,
 } from "../components/monitors/HeadersEditor";
+import { TagsInput } from "../components/monitors/TagsInput";
 import { TestRequestPanel } from "../components/monitors/TestRequestPanel";
 import { Spinner } from "../components/common/Spinner";
 import { ErrorState } from "../components/common/ErrorState";
@@ -54,6 +55,7 @@ export function MonitorForm({ mode }: { mode: "create" | "edit" }) {
   const [statusCodesText, setStatusCodesText] = useState("200");
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [isPublic, setIsPublic] = useState(false);
+  const [tags, setTags] = useState<string[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
 
   const [testResult, setTestResult] = useState<ManualCheckResult | null>(null);
@@ -76,6 +78,7 @@ export function MonitorForm({ mode }: { mode: "create" | "edit" }) {
     setStatusCodesText(monitor.expected_status_codes.join(", "));
     setSelectedChannels(monitor.notification_channel_ids);
     setIsPublic(monitor.is_public);
+    setTags(monitor.tags);
   }, [mode, existing.data]);
 
   function parseBody(): Record<string, unknown> | string | null {
@@ -111,6 +114,7 @@ export function MonitorForm({ mode }: { mode: "create" | "edit" }) {
       expected_status_codes: parseStatusCodes(),
       notification_channel_ids: selectedChannels,
       is_public: isPublic,
+      tags,
     };
   }
 
@@ -241,6 +245,11 @@ export function MonitorForm({ mode }: { mode: "create" | "edit" }) {
               Only public http:// and https:// URLs are allowed. Private, loopback, and internal
               addresses are rejected.
             </p>
+          </div>
+          <div>
+            <span className="label-base">Tags</span>
+            <TagsInput tags={tags} onChange={setTags} />
+            <p className="field-hint">Optional. Group related monitors and filter the dashboard by them.</p>
           </div>
         </section>
 

@@ -11,6 +11,8 @@ from app.constants import (
     MAX_INTERVAL_SECONDS,
     MAX_NAME_LENGTH,
     MAX_STATUS_CODE,
+    MAX_TAG_LENGTH,
+    MAX_TAGS,
     MAX_TIMEOUT_SECONDS,
     MAX_URL_LENGTH,
     MIN_INTERVAL_SECONDS,
@@ -29,6 +31,24 @@ def _validate_headers(headers: dict[str, str]) -> dict[str, str]:
         if len(value) > MAX_HEADER_VALUE_LENGTH:
             raise ValueError(f"Header values must be at most {MAX_HEADER_VALUE_LENGTH} characters.")
     return headers
+
+
+def _validate_tags(tags: list[str]) -> list[str]:
+    if len(tags) > MAX_TAGS:
+        raise ValueError(f"A monitor may have at most {MAX_TAGS} tags.")
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        trimmed = tag.strip()
+        if not trimmed:
+            raise ValueError("Tags cannot be blank.")
+        if len(trimmed) > MAX_TAG_LENGTH:
+            raise ValueError(f"Tags must be at most {MAX_TAG_LENGTH} characters.")
+        if trimmed.lower() in seen:
+            continue
+        seen.add(trimmed.lower())
+        cleaned.append(trimmed)
+    return cleaned
 
 
 def _validate_body_size(body: dict | str | None) -> dict | str | None:
@@ -53,6 +73,7 @@ class MonitorBase(BaseModel):
     expected_status_codes: list[int] = Field(default_factory=lambda: [200])
     notification_channel_ids: list[str] = Field(default_factory=list)
     is_public: bool = False
+    tags: list[str] = Field(default_factory=list)
 
     @field_validator("url")
     @classmethod
@@ -76,6 +97,11 @@ class MonitorBase(BaseModel):
     @classmethod
     def validate_headers(cls, value: dict[str, str]) -> dict[str, str]:
         return _validate_headers(value)
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, value: list[str]) -> list[str]:
+        return _validate_tags(value)
 
     @model_validator(mode="after")
     def validate_body(self) -> "MonitorBase":
@@ -138,6 +164,7 @@ class MonitorUpdate(BaseModel):
     expected_status_codes: list[int] | None = None
     notification_channel_ids: list[str] | None = None
     is_public: bool | None = None
+    tags: list[str] | None = None
 
     @field_validator("expected_status_codes")
     @classmethod
@@ -157,6 +184,13 @@ class MonitorUpdate(BaseModel):
         if value is None:
             return value
         return _validate_headers(value)
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return _validate_tags(value)
 
     @model_validator(mode="after")
     def validate_body(self) -> "MonitorUpdate":
@@ -183,6 +217,7 @@ class MonitorOut(BaseModel):
     expected_status_codes: list[int]
     notification_channel_ids: list[str]
     is_public: bool
+    tags: list[str]
 
     is_active: bool
     status: MonitorStatus

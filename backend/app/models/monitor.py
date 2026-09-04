@@ -26,6 +26,7 @@ class MonitorDocument(BaseModel):
     # Opt-in visibility on the owner's public status page. Only the name and
     # status/uptime are ever shown there -- never the URL, headers, or body.
     is_public: bool = False
+    tags: list[str] = Field(default_factory=list)
 
     # Consecutive counters used by the threshold state machine (reset on transition).
     consecutive_failures: int = 0
