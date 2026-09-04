@@ -1,7 +1,6 @@
 import logging
-from email.message import EmailMessage
 
-import aiosmtplib
+import httpx
 
 from app.config import get_settings
 from app.errors import NotificationFailedError
@@ -9,6 +8,8 @@ from app.notifications.base import NotificationEvent, NotificationEventType, Not
 from app.notifications.formatting import format_duration
 
 logger = logging.getLogger("apiwatch.notifications")
+
+RESEND_API_URL = "https://api.resend.com/emails"
 
 
 def _format_timestamp(value) -> str:
@@ -41,43 +42,47 @@ def _build_email(event: NotificationEvent) -> tuple[str, str]:
 
 
 class EmailProvider(NotificationProvider):
+    """Sends via the Resend HTTP API rather than SMTP -- see config.py for
+    why. `config` only ever needs the recipient; the sender identity and
+    API key are one shared deployment-wide setting, not per-channel."""
+
     async def send(self, config: dict[str, str], event: NotificationEvent) -> None:
         settings = get_settings()
-        if not settings.smtp_host or not settings.smtp_from_email:
+        if not settings.resend_api_key or not settings.resend_from_email:
             raise NotificationFailedError(
-                "Email notifications aren't configured on this server (SMTP_HOST/SMTP_FROM_EMAIL missing)."
+                "Email notifications aren't configured on this server (RESEND_API_KEY/RESEND_FROM_EMAIL missing)."
             )
 
         subject, body = _build_email(event)
-        message = EmailMessage()
-        message["From"] = settings.smtp_from_email
-        message["To"] = config["to_email"]
-        message["Subject"] = subject
-        message.set_content(body)
-
-        # Port 465 is implicit TLS from the first byte of the connection;
-        # 587 (and everything else) is plaintext-then-upgrade via STARTTLS.
-        # Using the wrong mode for the port silently misbehaves or hangs, so
-        # this is derived from the configured port rather than a separate
-        # setting -- matches how every SMTP provider documents these two.
-        implicit_tls = settings.smtp_port == 465
+        payload = {
+            "from": settings.resend_from_email,
+            "to": [config["to_email"]],
+            "subject": subject,
+            "text": body,
+        }
 
         try:
-            await aiosmtplib.send(
-                message,
-                hostname=settings.smtp_host,
-                port=settings.smtp_port,
-                username=settings.smtp_username or None,
-                password=settings.smtp_password or None,
-                use_tls=implicit_tls,
-                start_tls=not implicit_tls,
-                timeout=10,
-            )
-        except aiosmtplib.SMTPException as exc:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.post(
+                    RESEND_API_URL,
+                    json=payload,
+                    headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+                )
+        except httpx.HTTPError as exc:
             logger.warning("email_notification_failed error=%s", type(exc).__name__)
-            raise NotificationFailedError(f"Could not send email: {exc}") from exc
-        except OSError as exc:
-            logger.warning("email_notification_connect_failed error=%s", type(exc).__name__)
-            raise NotificationFailedError("Could not connect to the SMTP server.") from exc
+            raise NotificationFailedError("Could not reach the Resend API.") from exc
+
+        if response.status_code >= 400:
+            # Resend's error body has a human-readable `message` -- surface
+            # it, since it usually says exactly what's wrong (bad API key,
+            # unverified sender domain, recipient not allowed in test mode).
+            try:
+                detail = response.json().get("message", "")
+            except ValueError:
+                detail = ""
+            logger.warning("email_notification_rejected status=%s detail=%s", response.status_code, detail)
+            raise NotificationFailedError(
+                "Resend rejected the email" + (f": {detail}" if detail else f" (HTTP {response.status_code}).")
+            )
 
         logger.info("email_notification_sent event=%s", event.event_type)

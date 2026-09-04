@@ -47,16 +47,17 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
     cors_origins: str = "http://localhost:5173"
 
-    # SMTP, used by the Email notification provider. One sender identity for
-    # the whole deployment (not per-channel) -- each Email channel just
-    # stores a recipient address. Empty host means Email channels will fail
-    # to send with a clear error rather than the app refusing to start;
-    # nothing here is required unless you actually add an Email channel.
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_username: str = ""
-    smtp_password: str = ""
-    smtp_from_email: str = ""
+    # Resend (https://resend.com), used by the Email notification provider.
+    # One sender identity for the whole deployment (not per-channel) -- each
+    # Email channel just stores a recipient address. An HTTP API rather than
+    # raw SMTP on purpose: PaaS hosts commonly block outbound SMTP ports
+    # (25/465/587) as an anti-spam measure -- confirmed on this project's
+    # own Render deployment, where both ports timed out identically -- while
+    # a plain HTTPS POST is never blocked. Empty api_key means Email
+    # channels fail to send with a clear error rather than the app refusing
+    # to start; nothing here is required unless you actually add one.
+    resend_api_key: str = ""
+    resend_from_email: str = ""
 
     # Frontend refresh (surfaced via /api/health or config endpoints if needed)
     monitor_refresh_seconds: int = 30

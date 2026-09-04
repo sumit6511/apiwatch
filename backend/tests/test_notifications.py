@@ -1,7 +1,5 @@
 import json
-from unittest.mock import AsyncMock
 
-import aiosmtplib
 import httpx
 import pytest
 import respx
@@ -120,24 +118,26 @@ async def test_telegram_provider_raises_on_network_error():
         await provider.send({"bot_token": TELEGRAM_TOKEN, "chat_id": "999"}, event)
 
 
-# ── Email provider ───────────────────────────────────────────────────────
+# ── Email provider (Resend HTTP API) ─────────────────────────────────────
 
 
-async def test_email_provider_fails_clearly_when_smtp_not_configured(monkeypatch):
-    monkeypatch.setattr(get_settings(), "smtp_host", "")
+async def test_email_provider_fails_clearly_when_resend_not_configured(monkeypatch):
+    monkeypatch.setattr(get_settings(), "resend_api_key", "")
     provider = EmailProvider()
     event = NotificationEvent(event_type=NotificationEventType.TEST, monitor_name="X", monitor_url="")
     with pytest.raises(NotificationFailedError, match="aren't configured"):
         await provider.send({"to_email": "me@example.com"}, event)
 
 
-async def test_email_provider_sends_via_smtp(monkeypatch):
+@respx.mock
+async def test_email_provider_sends_via_resend(monkeypatch):
     settings = get_settings()
-    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
-    monkeypatch.setattr(settings, "smtp_from_email", "alerts@example.com")
+    monkeypatch.setattr(settings, "resend_api_key", "re_fake_key")
+    monkeypatch.setattr(settings, "resend_from_email", "alerts@example.com")
 
-    send_mock = AsyncMock(return_value=({}, "OK"))
-    monkeypatch.setattr("app.notifications.email.aiosmtplib.send", send_mock)
+    route = respx.post("https://api.resend.com/emails").mock(
+        return_value=httpx.Response(200, json={"id": "abc123"})
+    )
 
     provider = EmailProvider()
     event = NotificationEvent(
@@ -148,54 +148,38 @@ async def test_email_provider_sends_via_smtp(monkeypatch):
     )
     await provider.send({"to_email": "me@example.com"}, event)
 
-    send_mock.assert_awaited_once()
-    sent_message = send_mock.call_args.args[0]
-    assert sent_message["To"] == "me@example.com"
-    assert "DOWN" in sent_message["Subject"]
+    assert route.called
+    request = route.calls.last.request
+    assert request.headers["Authorization"] == "Bearer re_fake_key"
+    body = json.loads(request.content)
+    assert body["to"] == ["me@example.com"]
+    assert body["from"] == "alerts@example.com"
+    assert "DOWN" in body["subject"]
 
 
-async def test_email_provider_uses_starttls_on_port_587(monkeypatch):
+@respx.mock
+async def test_email_provider_raises_with_resends_error_message(monkeypatch):
     settings = get_settings()
-    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
-    monkeypatch.setattr(settings, "smtp_port", 587)
-    monkeypatch.setattr(settings, "smtp_from_email", "alerts@example.com")
+    monkeypatch.setattr(settings, "resend_api_key", "re_fake_key")
+    monkeypatch.setattr(settings, "resend_from_email", "alerts@example.com")
 
-    send_mock = AsyncMock(return_value=({}, "OK"))
-    monkeypatch.setattr("app.notifications.email.aiosmtplib.send", send_mock)
-
-    provider = EmailProvider()
-    event = NotificationEvent(event_type=NotificationEventType.TEST, monitor_name="X", monitor_url="")
-    await provider.send({"to_email": "me@example.com"}, event)
-
-    assert send_mock.call_args.kwargs["start_tls"] is True
-    assert send_mock.call_args.kwargs["use_tls"] is False
-
-
-async def test_email_provider_uses_implicit_tls_on_port_465(monkeypatch):
-    settings = get_settings()
-    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
-    monkeypatch.setattr(settings, "smtp_port", 465)
-    monkeypatch.setattr(settings, "smtp_from_email", "alerts@example.com")
-
-    send_mock = AsyncMock(return_value=({}, "OK"))
-    monkeypatch.setattr("app.notifications.email.aiosmtplib.send", send_mock)
-
-    provider = EmailProvider()
-    event = NotificationEvent(event_type=NotificationEventType.TEST, monitor_name="X", monitor_url="")
-    await provider.send({"to_email": "me@example.com"}, event)
-
-    assert send_mock.call_args.kwargs["use_tls"] is True
-    assert send_mock.call_args.kwargs["start_tls"] is False
-
-
-async def test_email_provider_raises_on_smtp_failure(monkeypatch):
-    settings = get_settings()
-    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
-    monkeypatch.setattr(settings, "smtp_from_email", "alerts@example.com")
-    monkeypatch.setattr(
-        "app.notifications.email.aiosmtplib.send",
-        AsyncMock(side_effect=aiosmtplib.SMTPAuthenticationError(535, "bad credentials")),
+    respx.post("https://api.resend.com/emails").mock(
+        return_value=httpx.Response(403, json={"message": "domain is not verified"})
     )
+
+    provider = EmailProvider()
+    event = NotificationEvent(event_type=NotificationEventType.TEST, monitor_name="X", monitor_url="")
+    with pytest.raises(NotificationFailedError, match="domain is not verified"):
+        await provider.send({"to_email": "me@example.com"}, event)
+
+
+@respx.mock
+async def test_email_provider_raises_on_network_error(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "resend_api_key", "re_fake_key")
+    monkeypatch.setattr(settings, "resend_from_email", "alerts@example.com")
+
+    respx.post("https://api.resend.com/emails").mock(side_effect=httpx.ConnectError("refused"))
 
     provider = EmailProvider()
     event = NotificationEvent(event_type=NotificationEventType.TEST, monitor_name="X", monitor_url="")

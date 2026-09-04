@@ -134,12 +134,13 @@ Three implementations today — `DiscordWebhookProvider`, `TelegramProvider`, `E
 |---|---|---|
 | Discord | `{"webhook_url": "..."}` | POST to the webhook |
 | Telegram | `{"bot_token": "...", "chat_id": "..."}` | Telegram Bot API `sendMessage` |
-| Email | `{"to_email": "..."}` | SMTP, using one shared sender identity for the whole deployment (`SMTP_HOST` etc.) — not per-channel credentials |
+| Email | `{"to_email": "..."}` | [Resend](https://resend.com)'s HTTP API, using one shared sender identity for the whole deployment (`RESEND_API_KEY`/`RESEND_FROM_EMAIL`) — not per-channel credentials |
 
 - Notifications fire **only on state transitions** (outage open, incident resolve) — never once per failed check.
 - A channel's config is stored as a single Fernet-encrypted JSON blob (`config_encrypted`) and only ever surfaced to the API/UI as a type-aware masked string (Discord: masked URL; Telegram: `Telegram chat •••1234`; Email: `j••••@example.com`) — never the full credential, and never logged. Changing a channel's *type* isn't supported as an edit (the config shape is different) — delete and recreate instead.
 - A monitor can be wired to any subset of configured channels via `notification_channel_ids`; creating/updating a monitor validates every referenced channel actually belongs to the same account (`MonitorService._validate_notification_channel_ids`) — otherwise one account could point a monitor at another account's channel and spam it.
-- The Settings page has a **Test** button per channel that sends a real message/email so you can confirm it works before relying on it. Adding an Email channel without `SMTP_HOST`/`SMTP_FROM_EMAIL` configured on the backend still saves the channel — sending fails with a clear "not configured" error rather than the app refusing to start.
+- The Settings page has a **Test** button per channel that sends a real message/email so you can confirm it works before relying on it. Adding an Email channel without `RESEND_API_KEY`/`RESEND_FROM_EMAIL` configured on the backend still saves the channel — sending fails with a clear "not configured" error rather than the app refusing to start.
+- **Email over HTTP, not SMTP:** this started as a plain SMTP integration and was switched after hitting it in this project's own Render deployment — outbound SMTP on both port 587 (STARTTLS) and 465 (implicit TLS) timed out identically connecting to Gmail, the signature of a network-level block rather than a credentials problem. Most PaaS hosts (Render included, by report) block outbound SMTP as an anti-spam measure; a plain HTTPS POST to Resend's API is not affected, since blocking that would break the platform for everyone.
 
 ## Security / SSRF Protection
 
@@ -309,7 +310,7 @@ See [`.env.example`](.env.example) for the full annotated list. The important on
 | `MAX_REQUEST_BODY_SIZE_KB` | Cap on a monitor's configured request body |
 | `FOLLOW_REDIRECTS` | Whether to follow (SSRF-revalidated) redirects during checks |
 | `ENCRYPTION_KEY` | Fernet key used to encrypt notification channel credentials at rest |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM_EMAIL` | One shared sender identity for Email notification channels — only needed if you add one |
+| `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | One shared sender identity for Email notification channels — only needed if you add one |
 | `API_ACCESS_KEY` | Shared secret protecting the API — empty disables auth (local dev); **set this on any public deployment** |
 | `JWT_SECRET_KEY` / `JWT_EXPIRE_DAYS` | Signs per-account login sessions — required, no default; rotating it logs everyone out |
 | `MAX_MONITORS_PER_OWNER` / `MONITOR_CREATE_COOLDOWN_SECONDS` | Per-account monitor-creation abuse guards (default 20 monitors, 10s between creates) |
@@ -376,14 +377,14 @@ Pulling the scheduler out into its own worker process (talking to the same Mongo
 
 ## Testing
 
-**Backend** (`cd backend && pytest`) — 100 tests against a real MongoDB Atlas database (`apiwatch_test`, separate from the dev database, wiped between tests), with outbound HTTP mocked via `respx`:
+**Backend** (`cd backend && pytest`) — 101 tests against a real MongoDB Atlas database (`apiwatch_test`, separate from the dev database, wiped between tests), with outbound HTTP mocked via `respx`:
 
 - URL validator: valid/invalid schemes, localhost, loopback, private ranges (v4 + v6), the cloud metadata address, IPv4-mapped IPv6
 - Monitor CRUD, pause/resume, and scheduler job lifecycle (including the pause/resume-while-down regression test)
 - Checker classification: 200/201/204 → UP, unexpected status/timeout → DOWN, redirects followed and SSRF-revalidated per hop, too-many-redirects handling
 - Threshold state machine: configurable failure/recovery thresholds, no duplicate incidents on repeated failure, transient-failure recovery-streak reset
 - Incident lifecycle: single incident per outage, single notification per transition, resolution + duration
-- Notifications: Discord/Telegram/Email payload shape and delivery, failure handling per provider (including SMTP not configured, Telegram's own error description surfaced), config masking/encryption round-trip per type, disabled channels excluded
+- Notifications: Discord/Telegram/Email payload shape and delivery, failure handling per provider (including Resend not configured, Resend's and Telegram's own error messages surfaced), config masking/encryption round-trip per type, disabled channels excluded
 - Uptime: 100%/50%/0%, empty-data returns `null` (never a fabricated 100%), period windowing
 - Auth: signup hashes the password (never stores plaintext), duplicate email rejected, wrong-password and unknown-email login both rejected identically, JWT round-trip, expired/malformed/mis-signed tokens rejected
 - Ownership isolation: a monitor/notification channel created by one account is a 404 (not a 403 that would leak existence) to another account on every read/write path, `list_all`/dashboard-summary/all-incidents scoped per caller, and a monitor can't reference another account's notification channel
@@ -391,7 +392,7 @@ Pulling the scheduler out into its own worker process (talking to the same Mongo
 
 **Frontend** (`cd frontend && npm run test`) — 30 tests, Vitest + React Testing Library, focused on behavior: status badges always render text (not color alone), form validation (including a real bug this caught — `Number("")` evaluating to `0` in JS, which silently turned a cleared "expected status codes" field into `[0]` instead of `[]`), monitor card actions, incident card states, check history rendering, the access-key and login gates (including that a locked-out account sees the right lock screen when the *other* gate is what actually failed), and the Settings page's per-type notification form (right fields shown per channel type, right payload shape submitted, no credential ever rendered into the DOM).
 
-Both suites, `npm run build` (strict TypeScript), and `docker compose up --build` were run as part of building this project, and the full app was driven end-to-end in a real headless browser: creating monitors against live public endpoints, verifying UP/DOWN classification and response times, incident open/resolve, SSRF rejection surfaced in the UI, pause/resume, manual-check throttling, the mobile drawer/responsive layout; two separate accounts in two isolated browser contexts confirming account B's dashboard never shows account A's monitor and that navigating directly to account A's monitor URL as account B renders the same "not found" state as a genuinely deleted monitor; and adding a real Discord, Telegram, and Email channel through the Settings UI, confirming each shows the right type-specific fields, the right masked summary, no credential ever rendered into the page, and a clear "not configured" error when testing Email without SMTP set up.
+Both suites, `npm run build` (strict TypeScript), and `docker compose up --build` were run as part of building this project, and the full app was driven end-to-end in a real headless browser: creating monitors against live public endpoints, verifying UP/DOWN classification and response times, incident open/resolve, SSRF rejection surfaced in the UI, pause/resume, manual-check throttling, the mobile drawer/responsive layout; two separate accounts in two isolated browser contexts confirming account B's dashboard never shows account A's monitor and that navigating directly to account A's monitor URL as account B renders the same "not found" state as a genuinely deleted monitor; and adding a real Discord, Telegram, and Email channel through the Settings UI, confirming each shows the right type-specific fields, the right masked summary, no credential ever rendered into the page, and a clear "not configured" error when testing Email without Resend set up.
 
 ## Future Improvements
 
