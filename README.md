@@ -53,6 +53,7 @@ You give APIWatch a URL, an HTTP method, an interval, and what a "healthy" respo
 - Optional shared-secret access key protecting the whole API/UI on public deployments, with zero setup for local dev
 - Multi-user accounts (email/password) — every account's monitors, checks, incidents, and notification channels are private to it
 - Per-account monitor-creation limits (total cap + cooldown) to prevent abuse
+- Discord, Telegram, and Email notification channels behind one shared `NotificationProvider` interface
 
 ## Architecture
 
@@ -124,15 +125,21 @@ computed directly from the `checks` collection for the requested window (`24h` /
 
 ```python
 class NotificationProvider(ABC):
-    async def send(self, webhook_url: str, event: NotificationEvent) -> None: ...
+    async def send(self, config: dict[str, str], event: NotificationEvent) -> None: ...
 ```
 
-`DiscordWebhookProvider` is the only implementation today; the interface is the extension point for Email/Slack/Telegram/Teams/generic webhooks later — nothing else in the codebase needs to change to add one.
+Three implementations today — `DiscordWebhookProvider`, `TelegramProvider`, `EmailProvider` — behind that one interface; Slack/Teams/generic-webhook later need nothing else in the codebase to change. `config` is the channel's decrypted, type-specific credential dict:
+
+| Type | `config` shape | Delivery |
+|---|---|---|
+| Discord | `{"webhook_url": "..."}` | POST to the webhook |
+| Telegram | `{"bot_token": "...", "chat_id": "..."}` | Telegram Bot API `sendMessage` |
+| Email | `{"to_email": "..."}` | SMTP, using one shared sender identity for the whole deployment (`SMTP_HOST` etc.) — not per-channel credentials |
 
 - Notifications fire **only on state transitions** (outage open, incident resolve) — never once per failed check.
-- Webhook URLs are encrypted at rest with Fernet (`ENCRYPTION_KEY`) and only ever surfaced to the API/UI as a masked string (e.g. `https://discord.com/api/webh••••••••••••`) — never the full URL, and never logged.
-- A monitor can be wired to any subset of configured channels via `notification_channel_ids`.
-- The Settings page has a **Test** button per channel that sends a real Discord message so you can confirm the webhook works before relying on it.
+- A channel's config is stored as a single Fernet-encrypted JSON blob (`config_encrypted`) and only ever surfaced to the API/UI as a type-aware masked string (Discord: masked URL; Telegram: `Telegram chat •••1234`; Email: `j••••@example.com`) — never the full credential, and never logged. Changing a channel's *type* isn't supported as an edit (the config shape is different) — delete and recreate instead.
+- A monitor can be wired to any subset of configured channels via `notification_channel_ids`; creating/updating a monitor validates every referenced channel actually belongs to the same account (`MonitorService._validate_notification_channel_ids`) — otherwise one account could point a monitor at another account's channel and spam it.
+- The Settings page has a **Test** button per channel that sends a real message/email so you can confirm it works before relying on it. Adding an Email channel without `SMTP_HOST`/`SMTP_FROM_EMAIL` configured on the backend still saves the channel — sending fails with a clear "not configured" error rather than the app refusing to start.
 
 ## Security / SSRF Protection
 
@@ -176,6 +183,8 @@ Both gates auto-detect on the frontend with a single probe request each (`Access
 Set both `API_ACCESS_KEY` and `JWT_SECRET_KEY` on any deployment reachable from the public internet.
 
 **Existing data migration:** monitors created before this feature shipped have no `owner_id` and become invisible to every account once ownership filtering is live (not deleted — just unmatched by any `{owner_id: ...}` query). `backend/scripts/assign_orphaned_monitors.py` is a one-off, not-part-of-the-app script to assign them to a specific account after you've signed up: `python scripts/assign_orphaned_monitors.py you@example.com --apply` (dry-run without `--apply`).
+
+Separately, notification channels created before Telegram/Email support shipped are stored under the old single-field `webhook_url_encrypted` shape rather than the generalized `config_encrypted`. `backend/scripts/migrate_notification_channel_config.py --apply` converts them (also dry-run by default) — every pre-existing channel is Discord, so this is unambiguous and safe to run once after deploying.
 
 ### Monitor-creation abuse guards
 
@@ -299,7 +308,8 @@ See [`.env.example`](.env.example) for the full annotated list. The important on
 | `CHECK_RETENTION_DAYS` | How long check history is kept (incidents are never auto-deleted) |
 | `MAX_REQUEST_BODY_SIZE_KB` | Cap on a monitor's configured request body |
 | `FOLLOW_REDIRECTS` | Whether to follow (SSRF-revalidated) redirects during checks |
-| `ENCRYPTION_KEY` | Fernet key used to encrypt Discord webhook URLs at rest |
+| `ENCRYPTION_KEY` | Fernet key used to encrypt notification channel credentials at rest |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM_EMAIL` | One shared sender identity for Email notification channels — only needed if you add one |
 | `API_ACCESS_KEY` | Shared secret protecting the API — empty disables auth (local dev); **set this on any public deployment** |
 | `JWT_SECRET_KEY` / `JWT_EXPIRE_DAYS` | Signs per-account login sessions — required, no default; rotating it logs everyone out |
 | `MAX_MONITORS_PER_OWNER` / `MONITOR_CREATE_COOLDOWN_SECONDS` | Per-account monitor-creation abuse guards (default 20 monitors, 10s between creates) |
@@ -366,27 +376,27 @@ Pulling the scheduler out into its own worker process (talking to the same Mongo
 
 ## Testing
 
-**Backend** (`cd backend && pytest`) — 90 tests against a real MongoDB Atlas database (`apiwatch_test`, separate from the dev database, wiped between tests), with outbound HTTP mocked via `respx`:
+**Backend** (`cd backend && pytest`) — 100 tests against a real MongoDB Atlas database (`apiwatch_test`, separate from the dev database, wiped between tests), with outbound HTTP mocked via `respx`:
 
 - URL validator: valid/invalid schemes, localhost, loopback, private ranges (v4 + v6), the cloud metadata address, IPv4-mapped IPv6
 - Monitor CRUD, pause/resume, and scheduler job lifecycle (including the pause/resume-while-down regression test)
 - Checker classification: 200/201/204 → UP, unexpected status/timeout → DOWN, redirects followed and SSRF-revalidated per hop, too-many-redirects handling
 - Threshold state machine: configurable failure/recovery thresholds, no duplicate incidents on repeated failure, transient-failure recovery-streak reset
 - Incident lifecycle: single incident per outage, single notification per transition, resolution + duration
-- Notifications: Discord payload shape, failure handling, webhook masking/encryption round-trip, disabled channels excluded
+- Notifications: Discord/Telegram/Email payload shape and delivery, failure handling per provider (including SMTP not configured, Telegram's own error description surfaced), config masking/encryption round-trip per type, disabled channels excluded
 - Uptime: 100%/50%/0%, empty-data returns `null` (never a fabricated 100%), period windowing
 - Auth: signup hashes the password (never stores plaintext), duplicate email rejected, wrong-password and unknown-email login both rejected identically, JWT round-trip, expired/malformed/mis-signed tokens rejected
 - Ownership isolation: a monitor/notification channel created by one account is a 404 (not a 403 that would leak existence) to another account on every read/write path, `list_all`/dashboard-summary/all-incidents scoped per caller, and a monitor can't reference another account's notification channel
 - Monitor-creation abuse guards: rejected once the per-account cap is reached, throttled by the per-account cooldown, both scoped so one account never blocks another
 
-**Frontend** (`cd frontend && npm run test`) — Vitest + React Testing Library, focused on behavior: status badges always render text (not color alone), form validation (including a real bug this caught — `Number("")` evaluating to `0` in JS, which silently turned a cleared "expected status codes" field into `[0]` instead of `[]`), monitor card actions, incident card states, check history rendering, the access-key and login gates (including that a locked-out account sees the right lock screen when the *other* gate is what actually failed).
+**Frontend** (`cd frontend && npm run test`) — 30 tests, Vitest + React Testing Library, focused on behavior: status badges always render text (not color alone), form validation (including a real bug this caught — `Number("")` evaluating to `0` in JS, which silently turned a cleared "expected status codes" field into `[0]` instead of `[]`), monitor card actions, incident card states, check history rendering, the access-key and login gates (including that a locked-out account sees the right lock screen when the *other* gate is what actually failed), and the Settings page's per-type notification form (right fields shown per channel type, right payload shape submitted, no credential ever rendered into the DOM).
 
-Both suites, `npm run build` (strict TypeScript), and `docker compose up --build` were run as part of building this project, and the full app was driven end-to-end in a real headless browser: creating monitors against live public endpoints, verifying UP/DOWN classification and response times, incident open/resolve, SSRF rejection surfaced in the UI, pause/resume, manual-check throttling, the mobile drawer/responsive layout, and — for the multi-user feature specifically — two separate accounts in two isolated browser contexts, confirming account B's dashboard never shows account A's monitor and that navigating directly to account A's monitor URL as account B renders the same "not found" state as a genuinely deleted monitor.
+Both suites, `npm run build` (strict TypeScript), and `docker compose up --build` were run as part of building this project, and the full app was driven end-to-end in a real headless browser: creating monitors against live public endpoints, verifying UP/DOWN classification and response times, incident open/resolve, SSRF rejection surfaced in the UI, pause/resume, manual-check throttling, the mobile drawer/responsive layout; two separate accounts in two isolated browser contexts confirming account B's dashboard never shows account A's monitor and that navigating directly to account A's monitor URL as account B renders the same "not found" state as a genuinely deleted monitor; and adding a real Discord, Telegram, and Email channel through the Settings UI, confirming each shows the right type-specific fields, the right masked summary, no credential ever rendered into the page, and a clear "not configured" error when testing Email without SMTP set up.
 
 ## Future Improvements
 
 - Pull the scheduler into a dedicated worker process (see [Scheduler Architecture](#scheduler-architecture)) to allow horizontal API scaling
-- Additional notification providers (Email, Slack, Telegram, Microsoft Teams, generic webhook) behind the existing `NotificationProvider` interface
+- Further notification providers (Slack, Microsoft Teams, generic webhook) behind the existing `NotificationProvider` interface — Discord, Telegram, and Email already implemented
 - Public status pages per monitor or monitor group
 - Multi-region checks
 - Password reset and email verification (signup is currently invite-only via the deployment access key, with no email-ownership check)

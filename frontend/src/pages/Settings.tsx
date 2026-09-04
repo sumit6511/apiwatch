@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Bell, Plus, Trash2 } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { Bell, Mail, MessageSquare, Plus, Send, Trash2 } from "lucide-react";
 
 import {
   useNotifications,
@@ -14,6 +14,19 @@ import { Spinner } from "../components/common/Spinner";
 import { EmptyState } from "../components/common/EmptyState";
 import { ErrorState } from "../components/common/ErrorState";
 import { ConfirmDialog } from "../components/common/ConfirmDialog";
+import type { NotificationChannelCreateInput, NotificationType } from "../types";
+
+const TYPE_LABELS: Record<NotificationType, string> = {
+  discord: "Discord",
+  telegram: "Telegram",
+  email: "Email",
+};
+
+const TYPE_ICONS: Record<NotificationType, typeof MessageSquare> = {
+  discord: MessageSquare,
+  telegram: Send,
+  email: Mail,
+};
 
 export function Settings() {
   const { showToast } = useToast();
@@ -23,20 +36,41 @@ export function Settings() {
   const updateNotification = useUpdateNotification();
   const testNotification = useTestNotification();
 
+  const [type, setType] = useState<NotificationType>("discord");
   const [name, setName] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
+  const [botToken, setBotToken] = useState("");
+  const [chatId, setChatId] = useState("");
+  const [toEmail, setToEmail] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
 
-  async function handleAdd(event: React.FormEvent) {
+  function resetForm() {
+    setName("");
+    setWebhookUrl("");
+    setBotToken("");
+    setChatId("");
+    setToEmail("");
+  }
+
+  async function handleAdd(event: FormEvent) {
     event.preventDefault();
     setFormError(null);
+
+    const payload: NotificationChannelCreateInput = {
+      type,
+      name: name.trim(),
+      enabled: true,
+      ...(type === "discord" && { webhook_url: webhookUrl.trim() }),
+      ...(type === "telegram" && { bot_token: botToken.trim(), chat_id: chatId.trim() }),
+      ...(type === "email" && { to_email: toEmail.trim() }),
+    };
+
     try {
-      await createNotification.mutateAsync({ type: "discord", name: name.trim(), webhook_url: webhookUrl.trim(), enabled: true });
+      await createNotification.mutateAsync(payload);
       showToast("success", "Notification channel added");
-      setName("");
-      setWebhookUrl("");
+      resetForm();
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : "Unable to add notification channel.");
     }
@@ -82,13 +116,29 @@ export function Settings() {
       </div>
 
       <section className="card-base p-5">
-        <h2 className="section-title mb-1">Discord Notifications</h2>
+        <h2 className="section-title mb-1">Notification Channels</h2>
         <p className="mb-4 text-sm text-muted">
-          Add a Discord webhook to receive outage and recovery alerts. The URL is encrypted at rest and
+          Add a channel to receive outage and recovery alerts. Credentials are encrypted at rest and
           never shown again in full once saved.
         </p>
 
         <form onSubmit={(e) => void handleAdd(e)} className="mb-5 flex flex-col gap-3 border-b border-edge pb-5">
+          <div>
+            <label className="label-base" htmlFor="channel-type">
+              Channel Type
+            </label>
+            <select
+              id="channel-type"
+              className="input-base"
+              value={type}
+              onChange={(e) => setType(e.target.value as NotificationType)}
+            >
+              <option value="discord">Discord</option>
+              <option value="telegram">Telegram</option>
+              <option value="email">Email</option>
+            </select>
+          </div>
+
           <div>
             <label className="label-base" htmlFor="channel-name">
               Channel Name
@@ -103,20 +153,92 @@ export function Settings() {
               required
             />
           </div>
-          <div>
-            <label className="label-base" htmlFor="channel-webhook">
-              Webhook URL
-            </label>
-            <input
-              id="channel-webhook"
-              type="password"
-              className="input-base mono-value"
-              placeholder="https://discord.com/api/webhooks/…"
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-              required
-            />
-          </div>
+
+          {type === "discord" && (
+            <div>
+              <label className="label-base" htmlFor="channel-webhook">
+                Webhook URL
+              </label>
+              <input
+                id="channel-webhook"
+                type="password"
+                className="input-base mono-value"
+                placeholder="https://discord.com/api/webhooks/…"
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                required
+              />
+            </div>
+          )}
+
+          {type === "telegram" && (
+            <>
+              <div>
+                <label className="label-base" htmlFor="channel-bot-token">
+                  Bot Token
+                </label>
+                <input
+                  id="channel-bot-token"
+                  type="password"
+                  className="input-base mono-value"
+                  placeholder="123456:ABC-DEF…"
+                  value={botToken}
+                  onChange={(e) => setBotToken(e.target.value)}
+                  required
+                />
+                <p className="field-hint">
+                  Create a bot with{" "}
+                  <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                    @BotFather
+                  </a>{" "}
+                  on Telegram to get a token.
+                </p>
+              </div>
+              <div>
+                <label className="label-base" htmlFor="channel-chat-id">
+                  Chat ID
+                </label>
+                <input
+                  id="channel-chat-id"
+                  type="text"
+                  className="input-base mono-value"
+                  placeholder="123456789"
+                  value={chatId}
+                  onChange={(e) => setChatId(e.target.value)}
+                  required
+                />
+                <p className="field-hint">
+                  Message your bot, then find your chat ID with{" "}
+                  <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                    @userinfobot
+                  </a>
+                  .
+                </p>
+              </div>
+            </>
+          )}
+
+          {type === "email" && (
+            <div>
+              <label className="label-base" htmlFor="channel-email">
+                Recipient Email
+              </label>
+              <input
+                id="channel-email"
+                type="email"
+                className="input-base"
+                placeholder="you@example.com"
+                value={toEmail}
+                onChange={(e) => setToEmail(e.target.value)}
+                required
+              />
+              <p className="field-hint">
+                Sent via the SMTP server configured on the backend. If delivery fails, the server may not
+                have SMTP set up yet.
+              </p>
+            </div>
+          )}
+
           {formError && <p className="text-sm text-danger">{formError}</p>}
           <button type="submit" className="btn-primary self-start" disabled={createNotification.isPending}>
             {createNotification.isPending ? <Spinner /> : <Plus size={16} />}
@@ -139,43 +261,59 @@ export function Settings() {
 
         {notificationsQuery.data && notificationsQuery.data.length > 0 && (
           <ul className="flex flex-col gap-3">
-            {notificationsQuery.data.map((channel) => (
-              <li key={channel.id} className="flex items-center justify-between gap-3 rounded-lg border border-edge px-3 py-2.5">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-text">{channel.name}</div>
-                  <div className="mono-value truncate text-xs text-muted">{channel.webhook_url_masked}</div>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <label className="flex items-center gap-1.5 text-xs text-muted">
-                    <input
-                      type="checkbox"
-                      checked={channel.enabled}
-                      onChange={(e) => void handleToggleEnabled(channel.id, e.target.checked)}
-                      className="h-4 w-4 rounded border-edge accent-[var(--aw-accent)]"
-                      aria-label={`Enable ${channel.name}`}
-                    />
-                    Enabled
-                  </label>
-                  <button
-                    type="button"
-                    className="btn-secondary text-xs"
-                    onClick={() => void handleTest(channel.id)}
-                    disabled={testingId === channel.id}
-                  >
-                    {testingId === channel.id ? <Spinner /> : "Test"}
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={() => setPendingDeleteId(channel.id)}
-                    aria-label={`Delete ${channel.name}`}
-                    title="Delete channel"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </li>
-            ))}
+            {notificationsQuery.data.map((channel) => {
+              const TypeIcon = TYPE_ICONS[channel.type];
+              return (
+                <li
+                  key={channel.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-edge px-3 py-2.5"
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface2 text-muted">
+                      <TypeIcon size={15} />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 text-sm font-medium text-text">
+                        {channel.name}
+                        <span className="rounded bg-surface2 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                          {TYPE_LABELS[channel.type]}
+                        </span>
+                      </div>
+                      <div className="mono-value truncate text-xs text-muted">{channel.target_masked}</div>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-xs text-muted">
+                      <input
+                        type="checkbox"
+                        checked={channel.enabled}
+                        onChange={(e) => void handleToggleEnabled(channel.id, e.target.checked)}
+                        className="h-4 w-4 rounded border-edge accent-[var(--aw-accent)]"
+                        aria-label={`Enable ${channel.name}`}
+                      />
+                      Enabled
+                    </label>
+                    <button
+                      type="button"
+                      className="btn-secondary text-xs"
+                      onClick={() => void handleTest(channel.id)}
+                      disabled={testingId === channel.id}
+                    >
+                      {testingId === channel.id ? <Spinner /> : "Test"}
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => setPendingDeleteId(channel.id)}
+                      aria-label={`Delete ${channel.name}`}
+                      title="Delete channel"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

@@ -22,11 +22,13 @@ class NotificationEvent:
 
 
 class NotificationProvider(ABC):
-    """Extensibility point for alert channels. Add Email/Slack/Telegram/etc.
-    by implementing this interface -- nothing else in the codebase should
-    need to change."""
+    """Extensibility point for alert channels. Add Slack/Teams/generic
+    webhook/etc. by implementing this interface -- nothing else in the
+    codebase should need to change. `config` is the channel's decrypted,
+    type-specific credential dict (see NotificationChannelDocument for the
+    shape per type)."""
 
     @abstractmethod
-    async def send(self, webhook_url: str, event: NotificationEvent) -> None:
+    async def send(self, config: dict[str, str], event: NotificationEvent) -> None:
         """Deliver `event`. Should raise NotificationFailedError on failure."""
         raise NotImplementedError

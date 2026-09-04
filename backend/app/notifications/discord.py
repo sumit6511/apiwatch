@@ -4,24 +4,13 @@ import httpx
 
 from app.errors import NotificationFailedError
 from app.notifications.base import NotificationEvent, NotificationEventType, NotificationProvider
+from app.notifications.formatting import format_duration
 
 logger = logging.getLogger("apiwatch.notifications")
 
 COLOR_DANGER = 0xE5484D
 COLOR_SUCCESS = 0x30A46C
 COLOR_INFO = 0x5B8DEF
-
-
-def _format_duration(seconds: int) -> str:
-    minutes, secs = divmod(max(seconds, 0), 60)
-    hours, minutes = divmod(minutes, 60)
-    parts = []
-    if hours:
-        parts.append(f"{hours}h")
-    if minutes:
-        parts.append(f"{minutes}m")
-    parts.append(f"{secs}s")
-    return " ".join(parts)
 
 
 def _build_payload(event: NotificationEvent) -> dict:
@@ -41,7 +30,7 @@ def _build_payload(event: NotificationEvent) -> dict:
             ]
         }
     if event.event_type == NotificationEventType.RECOVERY:
-        downtime = _format_duration(event.downtime_seconds or 0)
+        downtime = format_duration(event.downtime_seconds or 0)
         return {
             "embeds": [
                 {
@@ -67,7 +56,8 @@ def _build_payload(event: NotificationEvent) -> dict:
 
 
 class DiscordWebhookProvider(NotificationProvider):
-    async def send(self, webhook_url: str, event: NotificationEvent) -> None:
+    async def send(self, config: dict[str, str], event: NotificationEvent) -> None:
+        webhook_url = config["webhook_url"]
         payload = _build_payload(event)
         try:
             async with httpx.AsyncClient(timeout=10) as client:

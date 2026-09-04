@@ -6,6 +6,7 @@ import jwt
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.config import get_settings
+from app.models.enums import NotificationType
 
 JWT_ALGORITHM = "HS256"
 
@@ -32,6 +33,28 @@ def mask_webhook_url(url: str) -> str:
     if len(url) <= 12:
         return "•" * 12
     return f"{url[:24]}{'•' * 12}"
+
+
+def mask_email(email: str) -> str:
+    local, _, domain = email.partition("@")
+    if not domain:
+        return "•" * 12
+    visible = local[:1] or "•"
+    return f"{visible}{'•' * max(len(local) - 1, 3)}@{domain}"
+
+
+def mask_channel_config(channel_type: NotificationType, config: dict[str, str]) -> str:
+    """A short, safe-to-display summary of where a notification channel
+    sends -- never the credential itself. Shape depends on the channel type."""
+    if channel_type == NotificationType.DISCORD:
+        return mask_webhook_url(config["webhook_url"])
+    if channel_type == NotificationType.TELEGRAM:
+        chat_id = config["chat_id"]
+        suffix = chat_id[-4:] if len(chat_id) >= 4 else "••••"
+        return f"Telegram chat •••{suffix}"
+    if channel_type == NotificationType.EMAIL:
+        return mask_email(config["to_email"])
+    return "••••••••"
 
 
 # ── User auth ────────────────────────────────────────────────────────────

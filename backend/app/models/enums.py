@@ -25,3 +25,5 @@ class IncidentStatus(StrEnum):
 
 class NotificationType(StrEnum):
     DISCORD = "discord"
+    TELEGRAM = "telegram"
+    EMAIL = "email"

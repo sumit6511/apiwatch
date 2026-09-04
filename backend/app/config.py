@@ -47,8 +47,16 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
     cors_origins: str = "http://localhost:5173"
 
-    # Notifications
-    discord_webhook_url: str = ""
+    # SMTP, used by the Email notification provider. One sender identity for
+    # the whole deployment (not per-channel) -- each Email channel just
+    # stores a recipient address. Empty host means Email channels will fail
+    # to send with a clear error rather than the app refusing to start;
+    # nothing here is required unless you actually add an Email channel.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
 
     # Frontend refresh (surfaced via /api/health or config endpoints if needed)
     monitor_refresh_seconds: int = 30

@@ -2,7 +2,7 @@ export type MonitorStatus = "UP" | "DOWN" | "PAUSED" | "UNKNOWN";
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
 export type IncidentStatus = "OPEN" | "RESOLVED";
 export type Period = "24h" | "7d" | "30d";
-export type NotificationType = "discord";
+export type NotificationType = "discord" | "telegram" | "email";
 
 export interface UptimeSummary {
   period_24h: number | null;
@@ -105,22 +105,31 @@ export interface NotificationChannel {
   id: string;
   type: NotificationType;
   name: string;
-  webhook_url_masked: string;
+  target_masked: string;
   enabled: boolean;
   created_at: string;
 }
 
+/** Which fields are required depends on `type` (backend validates this
+ * together) -- webhook_url for discord, bot_token+chat_id for telegram,
+ * to_email for email. */
 export interface NotificationChannelCreateInput {
   type: NotificationType;
   name: string;
-  webhook_url: string;
   enabled: boolean;
+  webhook_url?: string;
+  bot_token?: string;
+  chat_id?: string;
+  to_email?: string;
 }
 
 export interface NotificationChannelUpdateInput {
   name?: string;
-  webhook_url?: string;
   enabled?: boolean;
+  webhook_url?: string;
+  bot_token?: string;
+  chat_id?: string;
+  to_email?: string;
 }
 
 export interface NotificationTestResult {

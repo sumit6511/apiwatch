@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -9,14 +10,24 @@ from app.errors import NotificationFailedError, NotificationNotFoundError
 from app.models.enums import NotificationType
 from app.notifications.base import NotificationEvent, NotificationEventType, NotificationProvider
 from app.notifications.discord import DiscordWebhookProvider
+from app.notifications.email import EmailProvider
+from app.notifications.telegram import TelegramProvider
 from app.schemas.notification import (
     NotificationChannelCreate,
     NotificationChannelOut,
     NotificationChannelUpdate,
 )
-from app.security import decrypt_secret, encrypt_secret, mask_webhook_url
+from app.security import decrypt_secret, encrypt_secret, mask_channel_config
 
 logger = logging.getLogger("apiwatch.notifications")
+
+
+def _encrypt_config(config: dict[str, str]) -> str:
+    return encrypt_secret(json.dumps(config))
+
+
+def _decrypt_config(config_encrypted: str) -> dict[str, str]:
+    return json.loads(decrypt_secret(config_encrypted))
 
 
 class NotificationService:
@@ -24,15 +35,18 @@ class NotificationService:
         self._repo = repo
         self._providers: dict[NotificationType, NotificationProvider] = {
             NotificationType.DISCORD: DiscordWebhookProvider(),
+            NotificationType.TELEGRAM: TelegramProvider(),
+            NotificationType.EMAIL: EmailProvider(),
         }
 
     def _to_out(self, doc: dict[str, Any]) -> NotificationChannelOut:
-        plaintext = decrypt_secret(doc["webhook_url_encrypted"])
+        channel_type = NotificationType(doc["type"])
+        config = _decrypt_config(doc["config_encrypted"])
         return NotificationChannelOut(
             id=str(doc["_id"]),
-            type=doc["type"],
+            type=channel_type,
             name=doc["name"],
-            webhook_url_masked=mask_webhook_url(plaintext),
+            target_masked=mask_channel_config(channel_type, config),
             enabled=doc["enabled"],
             created_at=doc["created_at"],
         )
@@ -46,13 +60,35 @@ class NotificationService:
             "owner_id": ObjectId(owner_id),
             "type": data.type,
             "name": data.name,
-            "webhook_url_encrypted": encrypt_secret(data.webhook_url),
+            "config_encrypted": _encrypt_config(data.to_config()),
             "enabled": data.enabled,
             "created_at": datetime.now(UTC),
         }
         created = await self._repo.create(document)
         logger.info("notification_channel_created id=%s owner_id=%s type=%s", created["_id"], owner_id, data.type)
         return self._to_out(created)
+
+    def _merge_config(self, channel_type: NotificationType, existing: dict[str, str], data: NotificationChannelUpdate) -> dict[str, str] | None:
+        """Returns a new config dict if any type-specific field was provided,
+        else None (meaning: leave the stored config untouched)."""
+        merged = dict(existing)
+        touched = False
+
+        if channel_type == NotificationType.DISCORD and data.webhook_url is not None:
+            merged["webhook_url"] = data.webhook_url
+            touched = True
+        elif channel_type == NotificationType.TELEGRAM:
+            if data.bot_token is not None:
+                merged["bot_token"] = data.bot_token.strip()
+                touched = True
+            if data.chat_id is not None:
+                merged["chat_id"] = data.chat_id.strip()
+                touched = True
+        elif channel_type == NotificationType.EMAIL and data.to_email is not None:
+            merged["to_email"] = str(data.to_email)
+            touched = True
+
+        return merged if touched else None
 
     async def update(
         self, channel_id: str, owner_id: str, data: NotificationChannelUpdate
@@ -61,13 +97,16 @@ class NotificationService:
         if existing is None:
             raise NotificationNotFoundError()
 
+        channel_type = NotificationType(existing["type"])
         fields: dict[str, Any] = {}
         if data.name is not None:
             fields["name"] = data.name
-        if data.webhook_url is not None:
-            fields["webhook_url_encrypted"] = encrypt_secret(data.webhook_url)
         if data.enabled is not None:
             fields["enabled"] = data.enabled
+
+        merged_config = self._merge_config(channel_type, _decrypt_config(existing["config_encrypted"]), data)
+        if merged_config is not None:
+            fields["config_encrypted"] = _encrypt_config(merged_config)
 
         updated = await self._repo.update(channel_id, owner_id, fields) if fields else existing
         logger.info("notification_channel_updated id=%s owner_id=%s", channel_id, owner_id)
@@ -85,14 +124,14 @@ class NotificationService:
             raise NotificationNotFoundError()
 
         provider = self._providers[NotificationType(doc["type"])]
-        webhook_url = decrypt_secret(doc["webhook_url_encrypted"])
+        config = _decrypt_config(doc["config_encrypted"])
         event = NotificationEvent(
             event_type=NotificationEventType.TEST,
             monitor_name="APIWatch",
             monitor_url="",
         )
         try:
-            await provider.send(webhook_url, event)
+            await provider.send(config, event)
         except NotificationFailedError:
             logger.warning("notification_test_failed id=%s", channel_id)
             raise
@@ -112,8 +151,8 @@ class NotificationService:
             if provider is None:
                 continue
             try:
-                webhook_url = decrypt_secret(channel["webhook_url_encrypted"])
-                await provider.send(webhook_url, event)
+                config = _decrypt_config(channel["config_encrypted"])
+                await provider.send(config, event)
                 logger.info(
                     "notification_sent channel_id=%s event=%s", channel["_id"], event.event_type
                 )
