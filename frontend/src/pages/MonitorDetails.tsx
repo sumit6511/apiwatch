@@ -17,7 +17,7 @@ import { StatusTimeline } from "../components/charts/StatusTimeline";
 import { CheckHistoryTable } from "../components/monitors/CheckHistoryTable";
 import { IncidentCard } from "../components/incidents/IncidentCard";
 import { useToast } from "../components/common/Toast";
-import { formatRelativeTime, formatResponseTime, formatUptime } from "../lib/format";
+import { formatRelativeTime, formatResponseTimeOrStatus, formatUptime } from "../lib/format";
 
 const PERIODS: { value: Period; label: string }[] = [
   { value: "24h", label: "24h" },
@@ -142,7 +142,7 @@ export function MonitorDetails() {
         <div className="card-base p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-muted">Response Time</div>
           <div className="mono-value mt-2 text-2xl font-semibold text-text">
-            {monitor.response_time_ms !== null ? formatResponseTime(monitor.response_time_ms) : "—"}
+            {formatResponseTimeOrStatus(monitor.http_status, monitor.response_time_ms)}
           </div>
         </div>
         <div className="card-base p-4">

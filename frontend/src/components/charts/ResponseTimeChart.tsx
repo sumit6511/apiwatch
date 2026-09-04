@@ -23,7 +23,10 @@ function ChartTooltip({ active, payload }: ChartTooltipProps) {
 }
 
 export function ResponseTimeChart({ points }: { points: MetricPoint[] }) {
-  if (points.length === 0) {
+  // A single point has no trend to draw -- an area chart with one dot on an
+  // otherwise-empty grid reads as broken, not "sparse". Same friendly
+  // message as truly no data, one check earlier.
+  if (points.length < 2) {
     return (
       <div className="flex h-56 items-center justify-center text-sm text-muted">
         Not enough data yet to draw a chart.

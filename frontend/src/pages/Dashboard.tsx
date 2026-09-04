@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Activity, Plus, SearchX } from "lucide-react";
+import { Activity, AlertCircle, Gauge, PauseCircle, Plus, SearchX, SquareCheck } from "lucide-react";
 
 import { useMonitors } from "../hooks/useMonitors";
 import { useDashboardSummary } from "../hooks/useDashboardSummary";
@@ -44,11 +44,30 @@ export function Dashboard() {
           Array.from({ length: 5 }).map((_, i) => <MetricCardSkeleton key={i} />)
         ) : summaryQuery.data ? (
           <>
-            <MetricCard label="Monitors" value={summaryQuery.data.total_monitors} />
-            <MetricCard label="Operational" value={summaryQuery.data.operational} valueClassName="status-up" />
-            <MetricCard label="Down" value={summaryQuery.data.down} valueClassName="status-down" />
-            <MetricCard label="Paused" value={summaryQuery.data.paused} valueClassName="status-paused" />
-            <MetricCard label="Overall Uptime" value={formatUptime(summaryQuery.data.overall_uptime_percentage)} />
+            <MetricCard label="Monitors" value={summaryQuery.data.total_monitors} icon={<Activity size={16} />} />
+            <MetricCard
+              label="Operational"
+              value={summaryQuery.data.operational}
+              valueClassName="status-up"
+              icon={<SquareCheck size={16} />}
+            />
+            <MetricCard
+              label="Down"
+              value={summaryQuery.data.down}
+              valueClassName="status-down"
+              icon={<AlertCircle size={16} />}
+            />
+            <MetricCard
+              label="Paused"
+              value={summaryQuery.data.paused}
+              valueClassName="status-paused"
+              icon={<PauseCircle size={16} />}
+            />
+            <MetricCard
+              label="Overall Uptime"
+              value={formatUptime(summaryQuery.data.overall_uptime_percentage)}
+              icon={<Gauge size={16} />}
+            />
           </>
         ) : summaryQuery.isError ? (
           <div className="col-span-2 sm:col-span-3 lg:col-span-5">

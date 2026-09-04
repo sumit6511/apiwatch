@@ -11,7 +11,7 @@ import { Sparkline } from "../charts/Sparkline";
 import { useChecks } from "../../hooks/useChecks";
 import { useDeleteMonitor, usePauseMonitor, useResumeMonitor, useRunManualCheck } from "../../hooks/useMonitors";
 import { useToast } from "../common/Toast";
-import { formatRelativeTime, formatResponseTime, formatUptime } from "../../lib/format";
+import { formatRelativeTime, formatResponseTimeOrStatus, formatUptime } from "../../lib/format";
 
 export function MonitorCard({ monitor }: { monitor: Monitor }) {
   const navigate = useNavigate();
@@ -114,7 +114,7 @@ export function MonitorCard({ monitor }: { monitor: Monitor }) {
         <div className="mono-value text-sm text-text">
           {monitor.http_status ?? "—"}
           <span className="ml-2 text-muted">
-            {monitor.response_time_ms !== null ? formatResponseTime(monitor.response_time_ms) : "—"}
+            {formatResponseTimeOrStatus(monitor.http_status, monitor.response_time_ms)}
           </span>
         </div>
         <div className="mono-value text-xs text-muted">{formatUptime(monitor.uptime?.period_24h ?? null)} uptime</div>

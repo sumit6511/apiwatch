@@ -49,6 +49,18 @@ export function formatResponseTime(ms: number): string {
   return `${ms}ms`;
 }
 
+/** A `null` http_status means the request never got a response at all
+ * (timeout, SSRF block, connection failure) -- response_time_ms in that
+ * case is elapsed/waited time, not a measured server response time, and
+ * showing it as a plain duration (e.g. "10.00s") reads as "the server took
+ * 10 seconds" rather than "we gave up waiting". Surface that distinction
+ * instead of a misleading number. */
+export function formatResponseTimeOrStatus(httpStatus: number | null, responseTimeMs: number | null): string {
+  if (responseTimeMs === null) return "—";
+  if (httpStatus === null) return "No response";
+  return formatResponseTime(responseTimeMs);
+}
+
 export function formatUptime(percentage: number | null): string {
   if (percentage === null) return "—";
   return `${percentage.toFixed(2)}%`;
