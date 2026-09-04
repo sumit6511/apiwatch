@@ -1,6 +1,5 @@
 import { useNavigate } from "react-router-dom";
 import { MoreVertical, Pause, Pencil, Play, Trash2, Zap } from "lucide-react";
-import { useState } from "react";
 
 import type { Monitor } from "../../types";
 import { StatusIndicator } from "../common/Status";
@@ -9,58 +8,19 @@ import { DropdownMenu, DropdownMenuItem } from "../common/DropdownMenu";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { Sparkline } from "../charts/Sparkline";
 import { useChecks } from "../../hooks/useChecks";
-import { useDeleteMonitor, usePauseMonitor, useResumeMonitor, useRunManualCheck } from "../../hooks/useMonitors";
-import { useToast } from "../common/Toast";
+import { useMonitorActions } from "../../hooks/useMonitorActions";
 import { formatRelativeTime, formatResponseTimeOrStatus, formatUptime } from "../../lib/format";
 
 export function MonitorCard({ monitor }: { monitor: Monitor }) {
   const navigate = useNavigate();
-  const { showToast } = useToast();
   const { data: checks } = useChecks(monitor.id, 20);
-  const pauseMonitor = usePauseMonitor();
-  const resumeMonitor = useResumeMonitor();
-  const runCheck = useRunManualCheck();
-  const deleteMonitor = useDeleteMonitor();
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const { handlePauseResume, handleRunCheck, handleDelete, confirmDelete, setConfirmDelete, deletePending } =
+    useMonitorActions(monitor);
 
   const sparklinePoints = (checks ?? [])
     .slice()
     .reverse()
     .map((c) => ({ value: c.response_time_ms, status: c.status }));
-
-  const handlePauseResume = async () => {
-    try {
-      if (monitor.is_active) {
-        await pauseMonitor.mutateAsync(monitor.id);
-        showToast("success", `${monitor.name} paused`);
-      } else {
-        await resumeMonitor.mutateAsync(monitor.id);
-        showToast("success", `${monitor.name} resumed`);
-      }
-    } catch {
-      showToast("error", "Unable to update monitor");
-    }
-  };
-
-  const handleRunCheck = async () => {
-    try {
-      await runCheck.mutateAsync(monitor.id);
-      showToast("success", "Health check completed");
-    } catch {
-      showToast("error", "Health check failed to run");
-    }
-  };
-
-  const handleDelete = async () => {
-    try {
-      await deleteMonitor.mutateAsync(monitor.id);
-      showToast("success", `${monitor.name} deleted`);
-    } catch {
-      showToast("error", "Unable to delete monitor");
-    } finally {
-      setConfirmDelete(false);
-    }
-  };
 
   return (
     <div className="card-interactive group relative flex flex-col p-4">
@@ -132,7 +92,7 @@ export function MonitorCard({ monitor }: { monitor: Monitor }) {
         description="This permanently removes the monitor along with its check history and incidents. This cannot be undone."
         confirmLabel="Delete monitor"
         danger
-        busy={deleteMonitor.isPending}
+        busy={deletePending}
         onConfirm={() => void handleDelete()}
         onCancel={() => setConfirmDelete(false)}
       />
