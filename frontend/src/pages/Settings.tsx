@@ -15,6 +15,7 @@ import { Spinner } from "../components/common/Spinner";
 import { EmptyState } from "../components/common/EmptyState";
 import { ErrorState } from "../components/common/ErrorState";
 import { ConfirmDialog } from "../components/common/ConfirmDialog";
+import { Select } from "../components/common/Select";
 import type { NotificationChannelCreateInput, NotificationType } from "../types";
 
 const TYPE_LABELS: Record<NotificationType, string> = {
@@ -156,16 +157,17 @@ export function Settings() {
             <label className="label-base" htmlFor="channel-type">
               Channel Type
             </label>
-            <select
+            <Select
               id="channel-type"
-              className="input-base"
               value={type}
-              onChange={(e) => setType(e.target.value as NotificationType)}
-            >
-              <option value="discord">Discord</option>
-              <option value="telegram">Telegram</option>
-              <option value="email">Email</option>
-            </select>
+              onChange={setType}
+              options={[
+                { value: "discord", label: "Discord" },
+                { value: "telegram", label: "Telegram" },
+                { value: "email", label: "Email" },
+              ]}
+              className="w-full"
+            />
           </div>
 
           <div>

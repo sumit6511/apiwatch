@@ -25,6 +25,7 @@ import { MetricCardSkeleton, MonitorCardSkeleton } from "../components/common/Sk
 import { EmptyState } from "../components/common/EmptyState";
 import { ErrorState } from "../components/common/ErrorState";
 import { ConfirmDialog } from "../components/common/ConfirmDialog";
+import { Select } from "../components/common/Select";
 import { useToast } from "../components/common/Toast";
 import { formatUptime } from "../lib/format";
 import { sortMonitors, type MonitorSortKey } from "../lib/monitorSort";
@@ -204,32 +205,21 @@ export function Dashboard() {
           {monitorsQuery.data && monitorsQuery.data.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               {tagOptions.length > 0 && (
-                <select
+                <Select
                   value={tagFilter}
-                  onChange={(e) => setTagFilter(e.target.value)}
-                  className="input-base w-auto py-1.5 text-xs"
-                  aria-label="Filter by tag"
-                >
-                  <option value="all">All tags</option>
-                  {tagOptions.map((tag) => (
-                    <option key={tag} value={tag}>
-                      {tag}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setTagFilter}
+                  options={[{ value: "all", label: "All tags" }, ...tagOptions.map((tag) => ({ value: tag, label: tag }))]}
+                  ariaLabel="Filter by tag"
+                  className="w-auto py-1.5 text-xs"
+                />
               )}
-              <select
+              <Select
                 value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as MonitorSortKey)}
-                className="input-base w-auto py-1.5 text-xs"
-                aria-label="Sort monitors"
-              >
-                {SORT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                onChange={setSortKey}
+                options={SORT_OPTIONS}
+                ariaLabel="Sort monitors"
+                className="w-auto py-1.5 text-xs"
+              />
               <div className="flex gap-0.5 rounded-lg border border-edge p-0.5">
                 <button
                   type="button"

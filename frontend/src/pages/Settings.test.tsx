@@ -32,7 +32,8 @@ describe("Settings", () => {
     renderWithProviders(<Settings />);
     const user = userEvent.setup();
 
-    await user.selectOptions(await screen.findByLabelText("Channel Type"), "telegram");
+    await user.click(await screen.findByLabelText("Channel Type"));
+    await user.click(screen.getByRole("option", { name: "Telegram" }));
 
     expect(screen.getByLabelText("Bot Token")).toBeInTheDocument();
     expect(screen.getByLabelText("Chat ID")).toBeInTheDocument();
@@ -43,7 +44,8 @@ describe("Settings", () => {
     renderWithProviders(<Settings />);
     const user = userEvent.setup();
 
-    await user.selectOptions(await screen.findByLabelText("Channel Type"), "email");
+    await user.click(await screen.findByLabelText("Channel Type"));
+    await user.click(screen.getByRole("option", { name: "Email" }));
 
     expect(screen.getByLabelText("Recipient Email")).toBeInTheDocument();
     expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
@@ -66,7 +68,8 @@ describe("Settings", () => {
     renderWithProviders(<Settings />);
     const user = userEvent.setup();
 
-    await user.selectOptions(await screen.findByLabelText("Channel Type"), "telegram");
+    await user.click(await screen.findByLabelText("Channel Type"));
+    await user.click(screen.getByRole("option", { name: "Telegram" }));
     await user.type(screen.getByLabelText("Channel Name"), "Ops");
     await user.type(screen.getByLabelText("Bot Token"), "123456:ABC-DEF");
     await user.type(screen.getByLabelText("Chat ID"), "123456789");

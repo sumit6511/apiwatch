@@ -5,6 +5,7 @@ import { useAllIncidents } from "../hooks/useIncidents";
 import { IncidentCard } from "../components/incidents/IncidentCard";
 import { EmptyState } from "../components/common/EmptyState";
 import { ErrorState } from "../components/common/ErrorState";
+import { Select } from "../components/common/Select";
 import { Spinner } from "../components/common/Spinner";
 import type { IncidentStatus } from "../types";
 
@@ -65,19 +66,16 @@ export function Incidents() {
               ))}
             </div>
             {monitorOptions.length > 1 && (
-              <select
+              <Select
                 value={monitorFilter}
-                onChange={(e) => setMonitorFilter(e.target.value)}
-                className="input-base w-auto py-1.5 text-xs"
-                aria-label="Filter by monitor"
-              >
-                <option value="all">All monitors</option>
-                {monitorOptions.map(([id, name]) => (
-                  <option key={id} value={id}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+                onChange={setMonitorFilter}
+                options={[
+                  { value: "all", label: "All monitors" },
+                  ...monitorOptions.map(([id, name]) => ({ value: id, label: name })),
+                ]}
+                ariaLabel="Filter by monitor"
+                className="w-auto py-1.5 text-xs"
+              />
             )}
           </div>
         )}

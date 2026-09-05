@@ -15,6 +15,7 @@ import {
 } from "../components/monitors/HeadersEditor";
 import { TagsInput } from "../components/monitors/TagsInput";
 import { TestRequestPanel } from "../components/monitors/TestRequestPanel";
+import { Select } from "../components/common/Select";
 import { Spinner } from "../components/common/Spinner";
 import { ErrorState } from "../components/common/ErrorState";
 import type { ManualCheckResult } from "../types";
@@ -259,18 +260,13 @@ export function MonitorForm({ mode }: { mode: "create" | "edit" }) {
             <label className="label-base" htmlFor="monitor-method">
               HTTP Method
             </label>
-            <select
+            <Select
               id="monitor-method"
-              className="input-base"
               value={method}
-              onChange={(e) => setMethod(e.target.value as HttpMethod)}
-            >
-              {HTTP_METHODS.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
+              onChange={setMethod}
+              options={HTTP_METHODS.map((m) => ({ value: m, label: m }))}
+              className="w-full"
+            />
           </div>
           <div>
             <span className="label-base">Headers</span>
@@ -307,16 +303,17 @@ export function MonitorForm({ mode }: { mode: "create" | "edit" }) {
                   value={intervalValue}
                   onChange={(e) => setIntervalValue(Number(e.target.value))}
                 />
-                <select
-                  className="input-base w-32"
+                <Select
                   value={intervalUnit}
-                  onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)}
-                  aria-label="Interval unit"
-                >
-                  <option value="seconds">seconds</option>
-                  <option value="minutes">minutes</option>
-                  <option value="hours">hours</option>
-                </select>
+                  onChange={setIntervalUnit}
+                  options={[
+                    { value: "seconds", label: "seconds" },
+                    { value: "minutes", label: "minutes" },
+                    { value: "hours", label: "hours" },
+                  ]}
+                  ariaLabel="Interval unit"
+                  className="w-32"
+                />
               </div>
               <p className="field-hint">Between 30 seconds and 24 hours.</p>
             </div>

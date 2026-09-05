@@ -48,7 +48,8 @@ describe("Dashboard", () => {
     expect(screen.getByText("Staging API")).toBeInTheDocument();
 
     const user = userEvent.setup();
-    await user.selectOptions(screen.getByLabelText("Filter by tag"), "prod");
+    await user.click(screen.getByLabelText("Filter by tag"));
+    await user.click(screen.getByRole("option", { name: "prod" }));
 
     expect(screen.getByText("Prod API")).toBeInTheDocument();
     expect(screen.queryByText("Staging API")).not.toBeInTheDocument();
